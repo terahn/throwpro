@@ -171,14 +171,11 @@ func ClipboardReader() {
 		}
 	}
 	go func() {
-		for s := range sm.Status {
-			status = s
-			updateUI()
-		}
-	}()
-	go func() {
-		for s := range sm.Guess {
-			guess = s
+		for {
+			select {
+			case status = <-sm.Status:
+			case guess = <-sm.Guess:
+			}
 			updateUI()
 		}
 	}()

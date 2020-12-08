@@ -10,6 +10,12 @@ type ChunkList []Chunk
 
 type Chunk [2]int
 
+func (t Chunk) ChunkDist(other Chunk) float64 {
+	ax, ay := t.Center()
+	bx, by := other.Center()
+	return dist(float64(ax), float64(ay), float64(bx), float64(by))
+}
+
 type Throw struct {
 	X, Y, A float64
 	Blind   bool
@@ -24,7 +30,7 @@ func NewThrow(x, y, a float64) Throw {
 }
 
 func (t Throw) Similar(other Throw) bool {
-	if dist(t.X, t.Y, other.X, other.Y) < 20 {
+	if dist(t.X, t.Y, other.X, other.Y) < 12 {
 		return true
 	}
 	return false
@@ -104,12 +110,12 @@ type Guesses []Guess
 func (g Guesses) String() string {
 	central := g.Central()
 	x, y := central.Staircase()
-	return fmt.Sprintf("%.1f%% confident at %d,%d", float64(central.Confidence)/10.0, x, y)
+	return fmt.Sprintf("%.1f%% confident for %d,%d", float64(central.Confidence)/10.0, x, y)
 }
 
 func (g Guesses) Central() Guess {
 	if len(g) == 0 {
-		return Guess{Chunk{}, 100}
+		return Guess{Chunk{}, 1000}
 	}
 	sx, sy := g[0].Chunk.Center()
 	totalScore := g[0].Confidence
@@ -117,16 +123,26 @@ func (g Guesses) Central() Guess {
 	sy *= totalScore
 
 	for _, c := range g[1:] {
-
+		if c.Confidence < g[0].Confidence*9/10 {
+			break
+		}
 		x, y := c.Chunk.Center()
 		totalScore += c.Confidence
 		sx += x * c.Confidence
 		sy += y * c.Confidence
 	}
-	return Guess{
-		ChunkFromPosition(float64(sx)/float64(totalScore), float64(sy)/float64(totalScore)),
-		g[0].Confidence,
+	average := ChunkFromPosition(float64(sx)/float64(totalScore), float64(sy)/float64(totalScore))
+	closest := g[0]
+	closestDistance := average.ChunkDist(closest.Chunk)
+	for _, c := range g[1:] {
+		dist := average.ChunkDist(c.Chunk)
+		if dist < closestDistance {
+			closest = c
+			closestDistance = dist
+		}
 	}
+
+	return closest
 }
 
 func (s Session) Sorted() Guesses {
@@ -141,7 +157,7 @@ func (s Session) Sorted() Guesses {
 	sumScore := 0
 	topScore := s.Scores[chunks[0]]
 	for _, c := range chunks {
-		if s.Scores[c] < topScore-1 {
+		if s.Scores[c] < topScore*7/10 {
 			break
 		}
 		sumScore += s.Scores[c]

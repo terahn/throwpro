@@ -31,6 +31,7 @@ func (c Chunk) String() string {
 
 func (c Chunk) Score(a, sx, sy float64) int {
 	score := 7
+
 	delta := math.Abs(c.Angle(a, sx, sy))
 	if delta > angleDiff*7 {
 		return 0
@@ -49,16 +50,17 @@ func (c Chunk) Score(a, sx, sy float64) int {
 		score--
 	}
 
-	dist := c.Dist(0, 0)
-	if dist < minDist {
+	cDist := c.Dist(0, 0)
+	if cDist < minDist {
 		return 0
 	}
-	if dist > maxDist {
+	if cDist > maxDist {
 		return 0
 	}
 
-	preferred := minDist + (maxDist-minDist)*.2
-	ring := dist - preferred
+	spawn := math.Max(0, math.Min(.06, .06*dist(0, 0, sx, sy)/300))
+	preferred := minDist + (maxDist-minDist)*.165 + spawn
+	ring := cDist - preferred
 	if ring > ringMod {
 		score--
 	}

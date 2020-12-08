@@ -95,6 +95,6 @@ func TestProgression(t *testing.T) {
 				t.Logf("runnerUp ring: %d", c.Ring())
 			}
 		}
-		t.Logf("educated guess: %s", guesses.Central())
+		t.Logf("educated guess: %s", guesses.String())
 	}
 }
