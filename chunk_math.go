@@ -51,15 +51,15 @@ func (c Chunk) Score(a, sx, sy float64) int {
 	}
 
 	cDist := c.Dist(0, 0)
-	if cDist < minDist {
+	if cDist < minDist-240 {
 		return 0
 	}
-	if cDist > maxDist {
+	if cDist > maxDist+240 {
 		return 0
 	}
 
-	spawn := math.Max(0, math.Min(.06, .06*dist(0, 0, sx, sy)/300))
-	preferred := minDist + (maxDist-minDist)*.165 + spawn
+	spawn := math.Max(0, math.Min(.01, .01*dist(0, 0, sx, sy)/300))
+	preferred := minDist + (maxDist-minDist)*.189 + spawn
 	ring := cDist - preferred
 	if ring > ringMod {
 		score--

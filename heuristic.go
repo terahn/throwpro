@@ -110,7 +110,7 @@ type Guesses []Guess
 func (g Guesses) String() string {
 	central := g.Central()
 	x, y := central.Staircase()
-	return fmt.Sprintf("%.1f%% confident for %d,%d", float64(central.Confidence)/10.0, x, y)
+	return fmt.Sprintf("%d,%d with %.1f%% confidence", x, y, float64(central.Confidence)/10.0)
 }
 
 func (g Guesses) Central() Guess {

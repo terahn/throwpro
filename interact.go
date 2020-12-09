@@ -32,10 +32,10 @@ func NewThrowFromString(s string) (Throw, error) {
 		return Throw{}, fmt.Errorf("invalid format for command, has %d numbers", len(numbers))
 	}
 	if parts[2] != "minecraft:overworld" {
-		return Throw{X: numbers[2] * 8, Y: numbers[3] * 8, Blind: true}, nil
+		return Throw{X: numbers[0] * 8, Y: numbers[2] * 8, Blind: true}, nil
 	}
-	if numbers[4] < -55 || numbers[4] > -15 {
-		return Throw{X: numbers[2], Y: numbers[3], Blind: true}, nil
+	if numbers[4] < -48 || numbers[4] > -12 {
+		return Throw{X: numbers[0], Y: numbers[2], Blind: true}, nil
 	}
 	return NewThrow(numbers[0], numbers[2], numbers[3]), nil
 }
@@ -51,6 +51,9 @@ type SessionManager struct {
 	Guess  chan string
 }
 
+const waiting = name
+const waiting2 = `Look at ender eye and press F3+C.`
+
 func NewSessionManager(d time.Duration) *SessionManager {
 	sm := &SessionManager{
 		Status:   make(chan string, 10),
@@ -58,7 +61,7 @@ func NewSessionManager(d time.Duration) *SessionManager {
 		Duration: d,
 	}
 
-	sm.timer = time.AfterFunc(0, func() { sm.Message("Awaiting F3+C") })
+	sm.timer = time.AfterFunc(0, func() { sm.Message(waiting, waiting2) })
 	return sm
 }
 
@@ -75,7 +78,7 @@ func (sm *SessionManager) Reset() {
 	sm.lock.Lock()
 	defer sm.lock.Unlock()
 
-	sm.Message("Awaiting F3+C")
+	sm.Message(waiting, waiting2)
 	sm.ActiveSession = nil
 }
 
@@ -95,15 +98,15 @@ func (sm *SessionManager) Input(s string) {
 		chunk := GetBlindGuess(throw)
 		sm.ActiveSession = NewSession(throw)
 		x, y := chunk.Center()
-		sm.Message("Blind Travel", fmt.Sprintf("Nether %d,%d", x/8, y/8))
+		sm.Message(fmt.Sprintf("%d,%d nether (%d, %d overworld)", x/8, y/8, x, y), "Mode: Blind Travel")
 		return
 	}
 
 	if sm.ActiveSession == nil {
 		sm.ActiveSession = NewSession(throw)
 		blind := sm.ActiveSession.Sorted().Central()
-		x, y := blind.Center()
-		sm.Message("Educated Travel", fmt.Sprintf("Near %d,%d (Nether %d,%d)", x, y, x/8, y/8))
+		x, y := blind.Staircase()
+		sm.Message(fmt.Sprintf("%d,%d nether (%d,%d overworld)", x/8, y/8, x, y), "Mode: Educated Travel")
 		return
 	}
 
@@ -114,12 +117,12 @@ func (sm *SessionManager) Input(s string) {
 	if matches == 0 {
 		sm.ActiveSession = NewSession(throw)
 		blind := sm.ActiveSession.Sorted().Central()
-		x, y := blind.Center()
-		sm.Message("Educated Travel", fmt.Sprintf("Near %d,%d (Nether %d,%d)", x, y, x/8, y/8))
+		x, y := blind.Staircase()
+		sm.Message(fmt.Sprintf("%d,%d nether (%d,%d overworld)", x/8, y/8, x, y), "Mode: Educated Travel")
 		return
 	}
 
-	sm.Message("Overworld Guess", sm.ActiveSession.Sorted().String())
+	sm.Message(sm.ActiveSession.Sorted().String(), "Mode: Overworld Triangulation")
 }
 
 func ClipboardReader() {
@@ -132,7 +135,10 @@ func ClipboardReader() {
 
 	statusUI := widget.NewLabel("Status")
 	guessUI := widget.NewLabel("Guess")
-	w.SetContent(widget.NewVBox(statusUI, guessUI))
+	infoUI := widget.NewLabel("Info")
+	fileUI := widget.NewLabel("File")
+	w.SetContent(widget.NewVBox(statusUI, guessUI, infoUI, fileUI))
+	infoUI.SetText("For help, message @Cudduw")
 
 	defer w.ShowAndRun()
 	defer func() {
@@ -150,33 +156,35 @@ func ClipboardReader() {
 		return
 	}
 	path := filepath.FromSlash(dir + "/.throwpro.txt")
+	fileUI.SetText("Writing to " + dir + "/.throwpro.txt")
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
-		statusUI.SetText("error: " + err.Error())
+		fileUI.SetText("Warn: " + err.Error())
 		log.Println("error", err.Error())
-		return
+		f = nil
 	}
 	sm := NewSessionManager(11 * time.Minute)
 
 	var status, guess string
-	updateUI := func() {
-		log.Println("updating ui...", status, guess)
-		statusUI.SetText(status)
-		guessUI.SetText(guess)
-
-		f.Truncate(0)
-		f.Seek(0, 0)
-		if _, err := f.WriteString(status + "\n" + guess); err != nil {
-			log.Println("error writing file", err.Error())
-		}
-	}
 	go func() {
 		for {
 			select {
 			case status = <-sm.Status:
 			case guess = <-sm.Guess:
 			}
-			updateUI()
+
+			log.Println("updating ui...", status, guess)
+			statusUI.SetText(status)
+			guessUI.SetText(guess)
+
+			if f == nil {
+				continue
+			}
+			f.Truncate(0)
+			f.Seek(0, 0)
+			if _, err := f.WriteString(status + "\n" + guess); err != nil {
+				log.Println("error writing file", err.Error())
+			}
 		}
 	}()
 	go func() {
@@ -184,11 +192,14 @@ func ClipboardReader() {
 		lastText, err := clipboard.ReadAll()
 		if err != nil {
 			log.Println("error:", err.Error())
+			fileUI.SetText("Warn: " + err.Error())
 		}
 		for {
 			text, err := clipboard.ReadAll()
 			if err != nil {
 				log.Println("error:", err.Error())
+				fileUI.SetText("Warn: " + err.Error())
+				continue
 			}
 			if text == lastText {
 				time.Sleep(120 * time.Millisecond)
