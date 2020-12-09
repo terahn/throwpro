@@ -34,7 +34,7 @@ func (c Chunk) Score(a, sx, sy float64) int {
 
 	delta := math.Abs(c.Angle(a, sx, sy))
 	if delta > angleDiff*7 {
-		return 0
+		return 1
 	}
 
 	if delta > angleDiff {
@@ -51,11 +51,11 @@ func (c Chunk) Score(a, sx, sy float64) int {
 	}
 
 	cDist := c.Dist(0, 0)
-	if cDist < minDist-240 {
-		return 0
+	if cDist < minDist {
+		return 1
 	}
-	if cDist > maxDist+240 {
-		return 0
+	if cDist > maxDist {
+		return 1
 	}
 
 	spawn := math.Max(0, math.Min(.01, .01*dist(0, 0, sx, sy)/300))

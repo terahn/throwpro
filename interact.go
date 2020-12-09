@@ -2,6 +2,7 @@ package throwpro
 
 import (
 	"bufio"
+	"encoding/base64"
 	"fmt"
 	"log"
 	"os"
@@ -51,8 +52,8 @@ type SessionManager struct {
 	Guess  chan string
 }
 
-const waiting = name
-const waiting2 = `Look at ender eye and press F3+C.`
+var waiting = name
+var waiting2 = "Look at ender eye and press F3+C."
 
 func NewSessionManager(d time.Duration) *SessionManager {
 	sm := &SessionManager{
@@ -98,7 +99,7 @@ func (sm *SessionManager) Input(s string) {
 		chunk := GetBlindGuess(throw)
 		sm.ActiveSession = NewSession(throw)
 		x, y := chunk.Center()
-		sm.Message(fmt.Sprintf("%d,%d nether (%d, %d overworld)", x/8, y/8, x, y), "Mode: Blind Travel")
+		sm.Message(fmt.Sprintf(lns("%d,%d nether", "(%d, %d overworld)"), x/8, y/8, x, y), "Mode: Blind Travel")
 		return
 	}
 
@@ -106,7 +107,7 @@ func (sm *SessionManager) Input(s string) {
 		sm.ActiveSession = NewSession(throw)
 		blind := sm.ActiveSession.Sorted().Central()
 		x, y := blind.Staircase()
-		sm.Message(fmt.Sprintf("%d,%d nether (%d,%d overworld)", x/8, y/8, x, y), "Mode: Educated Travel")
+		sm.Message(fmt.Sprintf(lns("%d,%d nether", "(%d,%d overworld)"), x/8, y/8, x, y), "Mode: Educated Travel")
 		return
 	}
 
@@ -118,11 +119,11 @@ func (sm *SessionManager) Input(s string) {
 		sm.ActiveSession = NewSession(throw)
 		blind := sm.ActiveSession.Sorted().Central()
 		x, y := blind.Staircase()
-		sm.Message(fmt.Sprintf("%d,%d nether (%d,%d overworld)", x/8, y/8, x, y), "Mode: Educated Travel")
+		sm.Message(fmt.Sprintf(lns("%d,%d nether", "(%d,%d overworld)"), x/8, y/8, x, y), "Mode: Educated Travel")
 		return
 	}
 
-	sm.Message(sm.ActiveSession.Sorted().String(), "Mode: Overworld Triangulation")
+	sm.Message(lns(sm.ActiveSession.Sorted().String(), ""), "Mode: Overworld Triangulation")
 }
 
 func ClipboardReader() {
@@ -133,33 +134,71 @@ func ClipboardReader() {
 	w.Resize(fyne.NewSize(300, 50))
 	w.SetPadded(true)
 
-	statusUI := widget.NewLabel("Status")
-	guessUI := widget.NewLabel("Guess")
+	mainUI := widget.NewLabel("Status")
+	mainUI.TextStyle.Bold = true
+	secondUI := widget.NewLabel("Guess")
+
 	infoUI := widget.NewLabel("Info")
-	fileUI := widget.NewLabel("File")
-	w.SetContent(widget.NewVBox(statusUI, guessUI, infoUI, fileUI))
+	debugUI := widget.NewLabel("Debug")
+
+	var toggle func()
+	showButton := widget.NewButton("Show Secret Details", func() { toggle() })
+
+	var iconData, _ = base64.StdEncoding.DecodeString(icon)
+	w.SetIcon(fyne.NewStaticResource("eye.png", iconData))
+
+	toggle = func() {
+		if infoUI.Hidden {
+			infoUI.Show()
+			debugUI.Show()
+			mainUI.Hide()
+			secondUI.Hide()
+			showButton.SetText("Hide Secret Details")
+			return
+		}
+		infoUI.Hide()
+		debugUI.Hide()
+		mainUI.Show()
+		secondUI.Show()
+		showButton.SetText("Show Secret Details")
+	}
+	infoUI.Hide()
+	debugUI.Hide()
+
+	w.SetContent(widget.NewVBox(mainUI, secondUI, infoUI, debugUI, showButton))
+
 	infoUI.SetText("For help, message @Cudduw")
+	debugChan := make(chan string, 100)
+	debug := func(l1, l2 string) {
+		debugChan <- lns(l1, l2)
+	}
 
 	defer w.ShowAndRun()
 	defer func() {
 		err := recover()
 		if err != nil {
-			statusUI.SetText("Error")
-			guessUI.SetText(fmt.Sprintf(`%s`, err))
+			mainUI.SetText("Error")
+			secondUI.SetText(fmt.Sprintf(`%s`, err))
 		}
 	}()
 
 	dir, err := os.UserHomeDir()
 	if err != nil {
-		statusUI.SetText("error: " + err.Error())
+		mainUI.SetText("error: " + err.Error())
 		log.Println("error", err.Error())
 		return
 	}
+
+	clip := w.Clipboard()
+	if clip == nil {
+		debug("Clipboard warning...", "Method A failure.")
+	}
+
 	path := filepath.FromSlash(dir + "/.throwpro.txt")
-	fileUI.SetText("Writing to " + dir + "/.throwpro.txt")
+	debug("Writing to file...", dir+"/.throwpro.txt")
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
-		fileUI.SetText("Warn: " + err.Error())
+		debugChan <- "Warn: " + err.Error()
 		log.Println("error", err.Error())
 		f = nil
 	}
@@ -174,33 +213,44 @@ func ClipboardReader() {
 			}
 
 			log.Println("updating ui...", status, guess)
-			statusUI.SetText(status)
-			guessUI.SetText(guess)
+			mainUI.SetText(status)
+			secondUI.SetText(guess)
 
 			if f == nil {
 				continue
 			}
 			f.Truncate(0)
 			f.Seek(0, 0)
-			if _, err := f.WriteString(status + "\n" + guess); err != nil {
+			if _, err := f.WriteString(lns(status, guess)); err != nil {
 				log.Println("error writing file", err.Error())
 			}
 		}
 	}()
 	go func() {
-		log.Println("monitoring clipboard")
-		lastText, err := clipboard.ReadAll()
-		if err != nil {
-			log.Println("error:", err.Error())
-			fileUI.SetText("Warn: " + err.Error())
+		for i := range debugChan {
+			debugUI.SetText(i)
+			time.Sleep(5 * time.Second)
 		}
-		for {
+	}()
+
+	go func() {
+		log.Println("monitoring clipboard")
+		getClip := func() string {
+			if clip != nil {
+				return clip.Content()
+			}
 			text, err := clipboard.ReadAll()
 			if err != nil {
 				log.Println("error:", err.Error())
-				fileUI.SetText("Warn: " + err.Error())
-				continue
+				debug("Clipboard warning...", err.Error())
+				return ""
 			}
+			return text
+		}
+
+		lastText := getClip()
+		for {
+			text := getClip()
 			if text == lastText {
 				time.Sleep(120 * time.Millisecond)
 				continue
@@ -236,4 +286,8 @@ func Begin() {
 		sm.Input(text)
 
 	}
+}
+
+func lns(ss ...string) string {
+	return strings.Join(ss, "\r\n")
 }
