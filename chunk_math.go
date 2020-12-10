@@ -184,8 +184,8 @@ func ChunksInThrow(t Throw) ChunkList {
 		}
 
 		lastDist := dist(0, 0, cx, cy)
-		cx += dx * 4
-		cy += dy * 4
+		cx += dx * 2
+		cy += dy * 2
 		newDist := dist(0, 0, cx, cy)
 		if newDist > lastDist && newDist > float64(rings[len(rings)-1][1]+240) {
 			break

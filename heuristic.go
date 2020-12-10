@@ -30,7 +30,7 @@ func NewThrow(x, y, a float64) Throw {
 }
 
 func (t Throw) Similar(other Throw) bool {
-	if dist(t.X, t.Y, other.X, other.Y) < 12 {
+	if dist(t.X, t.Y, other.X, other.Y) < 6 {
 		return true
 	}
 	return false
@@ -43,13 +43,41 @@ type ThrowResults struct {
 
 func (t ThrowResults) Matches(any []ThrowResults) int {
 	matches := 0
+
 	for _, other := range any {
-		for tChunk := range t.Scores {
-			if _, found := other.Scores[tChunk]; found {
-				matches++
+		myMatches := 0
+		avgScore := 0
+		total := 0
+		maxScore := 0
+
+		for _, score := range other.Scores {
+			avgScore += score
+			total++
+			if score > maxScore {
+				maxScore = score
 			}
 		}
+		avgScore /= total
+
+		for tChunk, score := range t.Scores {
+			if score < avgScore {
+				continue
+			}
+			if score < maxScore*9/10 {
+				continue
+			}
+			for _, other := range any {
+				if _, found := other.Scores[tChunk]; found {
+					myMatches++
+				}
+			}
+		}
+		if myMatches == 0 {
+			return 0
+		}
+		matches += myMatches
 	}
+
 	return matches
 }
 
@@ -68,20 +96,36 @@ func SumScores(t Throw, layers []func(Throw, Chunk) int) ThrowResults {
 
 func MergeScores(throws ...ThrowResults) Guesses {
 	combined := make(map[Chunk]int)
-	for _, t := range throws {
+	average := 0
+	total := 0
+	max := 0
+	for n, t := range throws {
 		for chunk, score := range t.Scores {
-			combined[chunk] += score
+			combined[chunk] += score + n
+			average += score
+			total++
+			if score > max {
+				max = score
+			}
 		}
 	}
+	average /= total
+
 	guesses := make(Guesses, 0, len(combined))
 	for chunk, score := range combined {
+		if score < average {
+			continue
+		}
+		if score < max*8/10 {
+			continue
+		}
 		guesses = append(guesses, Guess{chunk, score})
 	}
 	return guesses
 }
 
 type Session struct {
-	Results     []ThrowResults
+	Throws      []ThrowResults
 	CustomLayer *LayerSet
 }
 
@@ -119,24 +163,24 @@ func (s *Session) Score(t Throw, c Chunk) int {
 
 func (s *Session) NewThrow(t Throw) int {
 	newScores := SumScores(t, TwoEyeSet().Layers())
-	matches := newScores.Matches(s.Results)
-	s.Results = append(s.Results, newScores)
+	matches := newScores.Matches(s.Throws)
+	s.Throws = append(s.Throws, newScores)
 	return matches
 }
 
 func (s *Session) Guess() Guesses {
-	if len(s.Results) == 1 {
+	if len(s.Throws) == 1 {
 		set := OneEyeSet()
 		if s.CustomLayer != nil {
 			set = *s.CustomLayer
 		}
 
-		newScores := SumScores(s.Results[0].Throw, set.Layers())
+		newScores := SumScores(s.Throws[0].Throw, set.Layers())
 		guesses := MergeScores(newScores)
 		sort.Sort(guesses)
 		return guesses
 	}
-	guesses := MergeScores(s.Results...)
+	guesses := MergeScores(s.Throws...)
 	sort.Sort(guesses)
 	return guesses
 }

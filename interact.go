@@ -103,6 +103,11 @@ func (sm *SessionManager) Input(s string) {
 		sm.Message(fmt.Sprintf(lns("%d,%d nether", "(%d, %d overworld)"), x/8, y/8, x, y), "Mode: Blind Travel")
 		return
 	}
+	for _, t := range sm.ActiveSession.Throws {
+		if throw.Similar(t.Throw) {
+			return
+		}
+	}
 
 	matches := sm.ActiveSession.NewThrow(throw)
 	if matches == 0 {
@@ -110,11 +115,13 @@ func (sm *SessionManager) Input(s string) {
 		sm.ActiveSession.NewThrow(throw)
 		blind := sm.ActiveSession.Guess().Central()
 		x, y := blind.Staircase()
-		sm.Message(fmt.Sprintf(lns("%d,%d nether", "(%d,%d overworld)"), x/8, y/8, x, y), "Mode: Educated Travel")
+		sm.Message(fmt.Sprintf(lns("%d,%d nether to go %.0f blocks", "(%d,%d overworld)"), x/8, y/8, blind.Dist(throw.X, throw.Y), x, y), "Mode: Educated Travel")
 		return
 	}
-
-	sm.Message(lns(sm.ActiveSession.Guess().String(), ""), "Mode: Overworld Triangulation")
+	guess := sm.ActiveSession.Guess().Central()
+	x, y := guess.Staircase()
+	msg := fmt.Sprintf("%d,%d is %.1f%% likely", x, y, float64(guess.Confidence)/10.0)
+	sm.Message(msg, lns("Mode: Overworld Triangulation", fmt.Sprintf(`%d matches, %.0f blocks away`, matches, guess.Dist(throw.X, throw.Y))))
 }
 
 func ClipboardReader() {
@@ -193,7 +200,7 @@ func ClipboardReader() {
 		log.Println("error", err.Error())
 		f = nil
 	}
-	sm := NewSessionManager(11 * time.Minute)
+	sm := NewSessionManager(6 * time.Minute)
 
 	var status, guess string
 	go func() {

@@ -75,7 +75,7 @@ func TestTriangulationAccuracy(t *testing.T) {
 			bestGuess := sess.Guess().Central()
 			chunkDist := int(bestGuess.ChunkDist(test.goal))
 
-			if chunkDist > 1000 {
+			if chunkDist > 10000 {
 				t.Logf("bad test result %#v, guessed %s", test, bestGuess)
 				t.Log(sess.Explain(throw, test.goal, bestGuess.Chunk))
 			}
@@ -146,9 +146,10 @@ func TestProgression(t *testing.T) {
 	sess := NewSession()
 	runnerUp := Chunk{56, -75}
 
-	for _, throw := range test.throws {
-		sess.NewThrow(throw)
+	for n, throw := range test.throws {
+		matches := sess.NewThrow(throw)
 		guesses := sess.Guess()
+
 		highScore := guesses[0].Confidence
 		for _, c := range guesses {
 			if c.Confidence < highScore-1 {
@@ -167,7 +168,7 @@ func TestProgression(t *testing.T) {
 				t.Logf("runnerUp angle: %f", c.Angle(throw.A, throw.X, throw.Y))
 			}
 		}
-		t.Logf("educated guess: %s", guesses.String())
+		t.Logf("throw %d matched %d, educated guess: %s", n, matches, guesses.String())
 	}
 }
 
