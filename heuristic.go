@@ -2,8 +2,8 @@ package throwpro
 
 import (
 	"fmt"
-	"log"
 	"sort"
+	"strings"
 )
 
 type ChunkList []Chunk
@@ -36,68 +36,109 @@ func (t Throw) Similar(other Throw) bool {
 	return false
 }
 
-type Session struct {
+type ThrowResults struct {
+	Throw
 	Scores map[Chunk]int
-	Throws []Throw
 }
 
-func NewSession(t Throw) *Session {
-	s := &Session{Throws: []Throw{t}, Scores: make(map[Chunk]int)}
-	chunks := ChunksInThrow(t)
-	for _, c := range chunks {
-		score := c.Score(t.A, t.X, t.Y)
-		if score == 0 {
-			continue
-		}
-		s.Scores[c] = score
-	}
-	return s
-}
-
-func (s *Session) IsThrowUseful(t Throw) bool {
-	for _, existing := range s.Throws {
-		if t.Similar(existing) {
-			return false
-		}
-	}
-	return true
-}
-
-func (s *Session) AddThrow(t Throw) (int, int) {
-	s.Throws = append(s.Throws, t)
-	chunks := ChunksInThrow(t)
+func (t ThrowResults) Matches(any []ThrowResults) int {
 	matches := 0
-	discarded := 0
-
-	activeChunks := make(map[Chunk]bool, 0)
-	for _, c := range chunks {
-		activeChunks[c] = true
-		_, found := s.Scores[c]
-		if !found {
-			continue
-		}
-		score := c.Score(t.A, t.X, t.Y)
-		if score < 3 {
-			delete(s.Scores, c)
-			discarded++
-			continue
-		}
-		matches++
-		s.Scores[c] += score
-	}
-
-	for c := range s.Scores {
-		if _, found := activeChunks[c]; found {
-			if s.Scores[c] == 0 {
-				delete(s.Scores, c)
-				discarded++
+	for _, other := range any {
+		for tChunk := range t.Scores {
+			if _, found := other.Scores[tChunk]; found {
+				matches++
 			}
-		} else {
-			delete(s.Scores, c)
-			discarded++
 		}
 	}
-	return matches, discarded
+	return matches
+}
+
+func SumScores(t Throw, layers []func(Throw, Chunk) int) ThrowResults {
+	res := ThrowResults{t, make(map[Chunk]int)}
+	chunks := ChunksInThrow(t)
+	for _, c := range chunks {
+		score := 0
+		for _, l := range layers {
+			score += l(t, c)
+		}
+		res.Scores[c] = score
+	}
+	return res
+}
+
+func MergeScores(throws ...ThrowResults) Guesses {
+	combined := make(map[Chunk]int)
+	for _, t := range throws {
+		for chunk, score := range t.Scores {
+			combined[chunk] += score
+		}
+	}
+	guesses := make(Guesses, 0, len(combined))
+	for chunk, score := range combined {
+		guesses = append(guesses, Guess{chunk, score})
+	}
+	return guesses
+}
+
+type Session struct {
+	Results     []ThrowResults
+	CustomLayer *LayerSet
+}
+
+func NewSession(cl ...LayerSet) *Session {
+	if len(cl) > 0 {
+		return &Session{CustomLayer: &cl[0]}
+	}
+	return &Session{}
+}
+
+func (s *Session) Explain(t Throw, goal Chunk, guess Chunk) string {
+	chunks := ChunksInThrow(t)
+	logs := []string{}
+	for _, c := range chunks {
+		if c.ChunkDist(goal) > 300 && c.ChunkDist(guess) > 300 {
+			continue
+		}
+		logs = append(logs, fmt.Sprintf("\n%s angle %f, ring %d, scores", c, c.Angle(t.A, t.X, t.Y), RingID(c)))
+
+		for _, l := range TwoEyeSet().Layers() {
+			logs = append(logs, fmt.Sprintf(`l1(%d)`, l(t, c)))
+		}
+		logs = append(logs, fmt.Sprintf("total %d", s.Score(t, c)))
+	}
+	return strings.Join(logs, ",")
+}
+
+func (s *Session) Score(t Throw, c Chunk) int {
+	score := 0
+	for _, l := range TwoEyeSet().Layers() {
+		score += l(t, c)
+	}
+	return score
+}
+
+func (s *Session) NewThrow(t Throw) int {
+	newScores := SumScores(t, TwoEyeSet().Layers())
+	matches := newScores.Matches(s.Results)
+	s.Results = append(s.Results, newScores)
+	return matches
+}
+
+func (s *Session) Guess() Guesses {
+	if len(s.Results) == 1 {
+		set := OneEyeSet()
+		if s.CustomLayer != nil {
+			set = *s.CustomLayer
+		}
+
+		newScores := SumScores(s.Results[0].Throw, set.Layers())
+		guesses := MergeScores(newScores)
+		sort.Sort(guesses)
+		return guesses
+	}
+	guesses := MergeScores(s.Results...)
+	sort.Sort(guesses)
+	return guesses
 }
 
 type Guess struct {
@@ -122,6 +163,7 @@ func (g Guesses) Central() Guess {
 	sx *= totalScore
 	sy *= totalScore
 
+	highestConfidence := 0
 	for _, c := range g[1:] {
 		if c.Confidence < g[0].Confidence*9/10 {
 			break
@@ -130,11 +172,17 @@ func (g Guesses) Central() Guess {
 		totalScore += c.Confidence
 		sx += x * c.Confidence
 		sy += y * c.Confidence
+		if c.Confidence > highestConfidence {
+			highestConfidence = c.Confidence
+		}
 	}
 	average := ChunkFromPosition(float64(sx)/float64(totalScore), float64(sy)/float64(totalScore))
 	closest := g[0]
 	closestDistance := average.ChunkDist(closest.Chunk)
 	for _, c := range g[1:] {
+		if c.Confidence < highestConfidence*8/10 {
+			continue
+		}
 		dist := average.ChunkDist(c.Chunk)
 		if dist < closestDistance {
 			closest = c
@@ -145,54 +193,16 @@ func (g Guesses) Central() Guess {
 	return closest
 }
 
-func (s Session) Sorted() Guesses {
-	chunks := make(ChunkList, 0, len(s.Scores))
-	for chunk := range s.Scores {
-		chunks = append(chunks, chunk)
-	}
-	sorter := SessionSorter{s, chunks}
-	sort.Sort(sorter)
-
-	guesses := make(Guesses, 0, len(chunks))
-	sumScore := 0
-	topScore := s.Scores[chunks[0]]
-	for _, c := range chunks {
-		if s.Scores[c] < topScore*7/10 {
-			break
-		}
-		sumScore += s.Scores[c]
-	}
-	log.Println("total confidence", sumScore)
-
-	for _, c := range chunks {
-		confidence := (1000 * s.Scores[c]) / sumScore
-		if len(chunks) == 1 {
-			confidence = 1000
-		}
-		if confidence < 1 {
-			confidence = 1
-		}
-		guesses = append(guesses, Guess{c, confidence})
-	}
-
-	return guesses
+func (s Guesses) Len() int {
+	return len(s)
 }
 
-type SessionSorter struct {
-	Session
-	ChunkList
+func (s Guesses) Less(a, b int) bool {
+	return s[a].Confidence > s[b].Confidence
 }
 
-func (s SessionSorter) Len() int {
-	return len(s.ChunkList)
-}
-
-func (s SessionSorter) Less(a, b int) bool {
-	return s.Scores[s.ChunkList[a]] > s.Scores[s.ChunkList[b]]
-}
-
-func (s SessionSorter) Swap(a, b int) {
-	s.ChunkList[a], s.ChunkList[b] = s.ChunkList[b], s.ChunkList[a]
+func (s Guesses) Swap(a, b int) {
+	s[a], s[b] = s[b], s[a]
 }
 
 func GetBlindGuess(t Throw) Guess {

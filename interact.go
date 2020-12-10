@@ -63,6 +63,7 @@ func NewSessionManager(d time.Duration) *SessionManager {
 	}
 
 	sm.timer = time.AfterFunc(0, func() { sm.Message(waiting, waiting2) })
+	sm.Reset()
 	return sm
 }
 
@@ -80,7 +81,7 @@ func (sm *SessionManager) Reset() {
 	defer sm.lock.Unlock()
 
 	sm.Message(waiting, waiting2)
-	sm.ActiveSession = nil
+	sm.ActiveSession = NewSession()
 }
 
 func (sm *SessionManager) Input(s string) {
@@ -97,33 +98,23 @@ func (sm *SessionManager) Input(s string) {
 	}
 	if throw.Blind {
 		chunk := GetBlindGuess(throw)
-		sm.ActiveSession = NewSession(throw)
+		sm.ActiveSession = NewSession()
 		x, y := chunk.Center()
 		sm.Message(fmt.Sprintf(lns("%d,%d nether", "(%d, %d overworld)"), x/8, y/8, x, y), "Mode: Blind Travel")
 		return
 	}
 
-	if sm.ActiveSession == nil {
-		sm.ActiveSession = NewSession(throw)
-		blind := sm.ActiveSession.Sorted().Central()
-		x, y := blind.Staircase()
-		sm.Message(fmt.Sprintf(lns("%d,%d nether", "(%d,%d overworld)"), x/8, y/8, x, y), "Mode: Educated Travel")
-		return
-	}
-
-	if !sm.ActiveSession.IsThrowUseful(throw) {
-		return
-	}
-	matches, _ := sm.ActiveSession.AddThrow(throw)
+	matches := sm.ActiveSession.NewThrow(throw)
 	if matches == 0 {
-		sm.ActiveSession = NewSession(throw)
-		blind := sm.ActiveSession.Sorted().Central()
+		sm.ActiveSession = NewSession()
+		sm.ActiveSession.NewThrow(throw)
+		blind := sm.ActiveSession.Guess().Central()
 		x, y := blind.Staircase()
 		sm.Message(fmt.Sprintf(lns("%d,%d nether", "(%d,%d overworld)"), x/8, y/8, x, y), "Mode: Educated Travel")
 		return
 	}
 
-	sm.Message(lns(sm.ActiveSession.Sorted().String(), ""), "Mode: Overworld Triangulation")
+	sm.Message(lns(sm.ActiveSession.Guess().String(), ""), "Mode: Overworld Triangulation")
 }
 
 func ClipboardReader() {
