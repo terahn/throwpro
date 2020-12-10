@@ -110,18 +110,77 @@ func (sm *SessionManager) Input(s string) {
 	}
 
 	matches := sm.ActiveSession.NewThrow(throw)
-	if matches == 0 {
+	guesses := sm.ActiveSession.Guess()
+	if matches == 0 || len(guesses) == 0 {
 		sm.ActiveSession = NewSession()
 		sm.ActiveSession.NewThrow(throw)
 		blind := sm.ActiveSession.Guess().Central()
 		x, y := blind.Staircase()
-		sm.Message(fmt.Sprintf(lns("%d,%d nether to go %.0f blocks", "(%d,%d overworld)"), x/8, y/8, blind.Dist(throw.X, throw.Y), x, y), "Mode: Educated Travel")
-		return
+		distPlayer := blind.Dist(throw.X, throw.Y)
+		if distPlayer > 350 {
+			distStr := "very far"
+			if distPlayer < 1100 {
+				distStr = "quite far"
+			}
+			if distPlayer < 700 {
+				distStr = "pretty far"
+			}
+			sm.Message(fmt.Sprintf(lns("%d,%d nether to go %s.", "(%d,%d overworld)"), x/8, y/8, distStr, x, y), "Mode: Educated Travel")
+			return
+		}
 	}
-	guess := sm.ActiveSession.Guess().Central()
+	guess := guesses.Central()
 	x, y := guess.Staircase()
-	msg := fmt.Sprintf("%d,%d is %.1f%% likely", x, y, float64(guess.Confidence)/10.0)
-	sm.Message(msg, lns("Mode: Overworld Triangulation", fmt.Sprintf(`%d matches, %.0f blocks away`, matches, guess.Dist(throw.X, throw.Y))))
+	totalConf := guesses[0].Confidence
+	maxConf := guesses[0].Confidence
+	maxDist := 0.0
+
+	for _, g := range guesses[1:] {
+		if g.Confidence < maxConf*8/10 {
+			continue
+		}
+		totalConf += g.Confidence
+		dist := guess.ChunkDist(g.Chunk)
+		if dist > maxDist {
+			maxDist = dist
+		}
+	}
+
+	distStr := "far away"
+	distPlayer := guess.Dist(throw.X, throw.Y)
+	if distPlayer < 1100 {
+		distStr = "quite far"
+	}
+	if distPlayer < 700 {
+		distStr = "not too far"
+	}
+	if distPlayer < 400 {
+		distStr = "not far at all"
+	}
+	if distPlayer < 200 {
+		distStr = "really close by"
+	}
+
+	conf := float64((guess.Confidence * 100) / totalConf)
+	accuracy := "a WILD guess"
+	if conf > .7 {
+		accuracy = "a ROUGH guess"
+	}
+	if conf > 1.7 {
+		accuracy = "a POOR guess"
+	}
+	if conf > 2.9 {
+		accuracy = "an OKAY guess"
+	}
+	if conf > 5.7 {
+		accuracy = "a GOOD guess"
+	}
+	if conf > 10 {
+		accuracy = "a GREAT guess"
+	}
+
+	msg := fmt.Sprintf("%d,%d is %s", x, y, accuracy)
+	sm.Message(msg, lns(fmt.Sprintf(`It's %s!`, distStr), "Mode: Overworld Triangulation"))
 }
 
 func ClipboardReader() {

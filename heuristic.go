@@ -57,10 +57,9 @@ func (t ThrowResults) Matches(any []ThrowResults) int {
 				maxScore = score
 			}
 		}
-		avgScore /= total
 
 		for tChunk, score := range t.Scores {
-			if score < avgScore {
+			if score*total < avgScore {
 				continue
 			}
 			if score < maxScore*9/10 {
@@ -109,11 +108,10 @@ func MergeScores(throws ...ThrowResults) Guesses {
 			}
 		}
 	}
-	average /= total
 
 	guesses := make(Guesses, 0, len(combined))
 	for chunk, score := range combined {
-		if score < average {
+		if score*total < average {
 			continue
 		}
 		if score < max*8/10 {

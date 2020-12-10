@@ -42,8 +42,6 @@ func RingID(c Chunk) int {
 
 func OneEyeSet() LayerSet {
 	return LayerSet{
-		// AnglePref: radsFromDegs(.2),
-		// RingMod:   300,
 		AnglePref: radsFromDegs(2),
 		RingMod:   150,
 	}
@@ -51,9 +49,7 @@ func OneEyeSet() LayerSet {
 
 func TwoEyeSet() LayerSet {
 	return LayerSet{
-		// AnglePref: radsFromDegs(.2),
-		// RingMod:   300,
-		AnglePref: radsFromDegs(1.45),
+		AnglePref: radsFromDegs(.69),
 		RingMod:   282,
 	}
 }
@@ -174,6 +170,9 @@ func ChunksInThrow(t Throw) ChunkList {
 			for yo := -1; yo < 1; yo++ {
 				chunk := Chunk{(blockX-centerX)/16 + xo, (blockY-centerY)/16 + yo}
 				if RingID(chunk) == -1 {
+					continue
+				}
+				if chunk.Dist(t.X, t.Y) > 4000 {
 					continue
 				}
 				if _, found := chunksFound[chunk]; !found {
