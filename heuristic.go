@@ -2,9 +2,20 @@ package throwpro
 
 import (
 	"fmt"
+	"log"
 	"sort"
 	"strings"
+
+	dbscan "github.com/866/go-dbscan"
+	"github.com/muesli/clusters"
+	"github.com/muesli/kmeans"
 )
+
+var DEBUG = false
+
+var DEBUG_CHUNK Chunk
+
+const CHUNK_GROUP = 1500
 
 type ChunkList []Chunk
 
@@ -36,95 +47,12 @@ func (t Throw) Similar(other Throw) bool {
 	return false
 }
 
-type ThrowResults struct {
-	Throw
-	Scores map[Chunk]int
-}
-
-func (t ThrowResults) Matches(any []ThrowResults) int {
-	matches := 0
-
-	for _, other := range any {
-		myMatches := 0
-		avgScore := 0
-		total := 0
-		maxScore := 0
-
-		for _, score := range other.Scores {
-			avgScore += score
-			total++
-			if score > maxScore {
-				maxScore = score
-			}
-		}
-
-		for tChunk, score := range t.Scores {
-			if score*total < avgScore {
-				continue
-			}
-			if score < maxScore*9/10 {
-				continue
-			}
-			for _, other := range any {
-				if _, found := other.Scores[tChunk]; found {
-					myMatches++
-				}
-			}
-		}
-		if myMatches == 0 {
-			return 0
-		}
-		matches += myMatches
-	}
-
-	return matches
-}
-
-func SumScores(t Throw, layers []func(Throw, Chunk) int) ThrowResults {
-	res := ThrowResults{t, make(map[Chunk]int)}
-	chunks := ChunksInThrow(t)
-	for _, c := range chunks {
-		score := 0
-		for _, l := range layers {
-			score += l(t, c)
-		}
-		res.Scores[c] = score
-	}
-	return res
-}
-
-func MergeScores(throws ...ThrowResults) Guesses {
-	combined := make(map[Chunk]int)
-	average := 0
-	total := 0
-	max := 0
-	for n, t := range throws {
-		for chunk, score := range t.Scores {
-			combined[chunk] += score + n
-			average += score
-			total++
-			if score > max {
-				max = score
-			}
-		}
-	}
-
-	guesses := make(Guesses, 0, len(combined))
-	for chunk, score := range combined {
-		if score*total < average {
-			continue
-		}
-		if score < max*8/10 {
-			continue
-		}
-		guesses = append(guesses, Guess{chunk, score})
-	}
-	return guesses
-}
-
 type Session struct {
-	Throws      []ThrowResults
+	Throws      []Throw
 	CustomLayer *LayerSet
+
+	Scores     map[Chunk]int
+	TotalScore int
 }
 
 func NewSession(cl ...LayerSet) *Session {
@@ -143,7 +71,7 @@ func (s *Session) Explain(t Throw, goal Chunk, guess Chunk) string {
 		}
 		logs = append(logs, fmt.Sprintf("\n%s angle %f, ring %d, scores", c, c.Angle(t.A, t.X, t.Y), RingID(c)))
 
-		for _, l := range TwoEyeSet().Layers() {
+		for _, l := range s.Layers() {
 			logs = append(logs, fmt.Sprintf(`l1(%d)`, l(t, c)))
 		}
 		logs = append(logs, fmt.Sprintf("total %d", s.Score(t, c)))
@@ -151,104 +79,217 @@ func (s *Session) Explain(t Throw, goal Chunk, guess Chunk) string {
 	return strings.Join(logs, ",")
 }
 
+func (s *Session) SumScores(layers []func(Throw, Chunk) int) (map[Chunk]int, int) {
+	scores := make(map[Chunk]int)
+	reject := make(map[Chunk]bool)
+	count := make(map[Chunk]int)
+
+	highest := 0
+	for _, t := range s.Throws {
+		chunks := ChunksInThrow(t)
+		for _, c := range chunks {
+			count[c]++
+			score := s.Score(t, c)
+			if score == 0 {
+				reject[c] = true
+				continue
+			}
+			scores[c] += score
+			if scores[c] > highest {
+				highest = scores[c]
+			}
+		}
+	}
+	// clear all totally rejected chunk scores
+	rejects := 0
+	total := 0
+	for c, score := range scores {
+		if reject[c] || count[c] < len(s.Throws) || score < highest*8/10 {
+			rejects++
+			delete(scores, c)
+			continue
+		}
+		total += score
+	}
+
+	if DEBUG {
+		log.Println("summed scores, matched", len(scores), "rejected", rejects, "highscore", highest)
+	}
+	return scores, total
+}
+
 func (s *Session) Score(t Throw, c Chunk) int {
 	score := 0
-	for _, l := range TwoEyeSet().Layers() {
-		score += l(t, c)
+	for _, l := range s.Layers() {
+		s := l(t, c)
+		if s == 0 {
+			// log.Println("chunk", c, "failed test", n)
+			return 0
+		}
+		score += s
 	}
 	return score
 }
 
-func (s *Session) NewThrow(t Throw) int {
-	newScores := SumScores(t, TwoEyeSet().Layers())
-	matches := newScores.Matches(s.Throws)
-	s.Throws = append(s.Throws, newScores)
-	return matches
+func (s *Session) Chunks() []Chunk {
+	chunks := make([]Chunk, 0, len(s.Scores))
+	for chunk := range s.Scores {
+		chunks = append(chunks, chunk)
+	}
+	sort.SliceStable(chunks, func(i int, j int) bool {
+		if chunks[i][0] < chunks[j][0] {
+			return true
+		}
+		if chunks[i][1] < chunks[j][1] {
+			return true
+		}
+		if chunks[i] == chunks[j] {
+			panic("equal chunks")
+		}
+		return false
+	})
+	return chunks
 }
 
-func (s *Session) Guess() Guesses {
+func (s *Session) ByScore() []Chunk {
+	chunks := s.Chunks()
+	sort.Slice(chunks, func(i int, j int) bool {
+		return s.Scores[chunks[i]] > s.Scores[chunks[j]]
+	})
+	return chunks
+}
+
+func (s *Session) NewThrow(t Throw) {
+	s.Throws = append(s.Throws, t)
+	s.Scores, s.TotalScore = s.SumScores(s.Layers())
+}
+
+func (s *Session) Layers() []func(Throw, Chunk) int {
+	if s.CustomLayer != nil {
+		return s.CustomLayer.Layers()
+	}
 	if len(s.Throws) == 1 {
-		set := OneEyeSet()
-		if s.CustomLayer != nil {
-			set = *s.CustomLayer
-		}
-
-		newScores := SumScores(s.Throws[0].Throw, set.Layers())
-		guesses := MergeScores(newScores)
-		sort.Sort(guesses)
-		return guesses
+		return OneEyeSet().Layers()
 	}
-	guesses := MergeScores(s.Throws...)
-	sort.Sort(guesses)
-	return guesses
+	return TwoEyeSet().Layers()
 }
 
-type Guess struct {
-	Chunk
-	Confidence int
-}
-
-type Guesses []Guess
-
-func (g Guesses) String() string {
-	central := g.Central()
-	x, y := central.Staircase()
-	return fmt.Sprintf("%d,%d with %.1f%% confidence", x, y, float64(central.Confidence)/10.0)
-}
-
-func (g Guesses) Central() Guess {
-	if len(g) == 0 {
-		return Guess{Chunk{}, 1000}
+func (s *Session) BestGuess() (Chunk, int) {
+	if len(s.Scores) == 0 {
+		return Chunk{}, 1000
 	}
-	sx, sy := g[0].Chunk.Center()
-	totalScore := g[0].Confidence
-	sx *= totalScore
-	sy *= totalScore
 
-	highestConfidence := 0
-	for _, c := range g[1:] {
-		if c.Confidence < g[0].Confidence*9/10 {
-			break
-		}
-		x, y := c.Chunk.Center()
-		totalScore += c.Confidence
-		sx += x * c.Confidence
-		sy += y * c.Confidence
-		if c.Confidence > highestConfidence {
-			highestConfidence = c.Confidence
-		}
-	}
-	average := ChunkFromPosition(float64(sx)/float64(totalScore), float64(sy)/float64(totalScore))
-	closest := g[0]
-	closestDistance := average.ChunkDist(closest.Chunk)
-	for _, c := range g[1:] {
-		if c.Confidence < highestConfidence*8/10 {
+	chunks := s.Chunks()
+	averageScore := s.TotalScore / len(chunks)
+	pts := make([]dbscan.Clusterable, 0, len(chunks))
+	counted := 0
+	for _, c := range chunks {
+		if s.Scores[c] < averageScore {
 			continue
 		}
-		dist := average.ChunkDist(c.Chunk)
+		counted++
+		pts = append(pts, c)
+	}
+	// log.Println("observing", counted, "/", len(chunks), "above average", averageScore)
+	clustered := dbscan.Clusterize(pts, 1, CHUNK_GROUP)
+	clusterGroups := make(map[int]clusters.Cluster)
+	allowOutliers := true
+	for id, c := range clustered {
+		group := clusters.Cluster{}
+		group.Center = []float64{0, 0}
+
+		for _, point := range c {
+			x, y := point.(Chunk).Center()
+			group.Center[0] += float64(x)
+			group.Center[1] += float64(y)
+
+			kobs := clusters.Coordinates([]float64{float64(x), float64(y)})
+			group.Observations = append(group.Observations, kobs)
+		}
+		group.Center[0] /= float64(len(group.Observations))
+		group.Center[1] /= float64(len(group.Observations))
+
+		clusterGroups[id] = group
+		if len(c) > 1 {
+			allowOutliers = false
+		}
+		if DEBUG {
+			log.Println("cluster", id, "size", len(c))
+		}
+	}
+
+	display := make(clusters.Clusters, 0, len(clusterGroups))
+	for id, c := range clusterGroups {
+		if len(c.Observations) == 1 && !allowOutliers {
+			continue
+		}
+		if DEBUG {
+			log.Println("cluster", id, "size", len(c.Observations), "center", c.Center)
+		}
+		display = append(display, c)
+	}
+	if DEBUG {
+		log.Println("chunks", len(pts), "clusters", len(display))
+	}
+
+	if len(display) == 0 {
+		panic(fmt.Sprintf(`%t, %#v = %#v`, allowOutliers, display, clusterGroups))
+	}
+
+	t := s.Throws[len(s.Throws)-1]
+	throwCoords := clusters.Coordinates{t.X, t.Y}
+	leastFar := display[0]
+	leastFound := leastFar.Center.Distance(throwCoords)
+	if len(display) > 1 {
+		for _, c := range display[1:] {
+			dist := c.Center.Distance(throwCoords)
+			if dist < leastFound {
+				leastFound = dist
+				leastFar = c
+			}
+		}
+	}
+
+	if DEBUG {
+		kmeans.SimplePlotter{}.Plot(display, 0)
+		log.Println("closest cluster", leastFar.Center, leastFound)
+	}
+
+	sx, sy := leastFar.Center[0], leastFar.Center[1]
+	average := ChunkFromPosition(sx, sy)
+	closest := chunks[0]
+	closestDistance := average.ChunkDist(closest)
+	for _, c := range chunks {
+		dist := average.ChunkDist(c)
 		if dist < closestDistance {
 			closest = c
 			closestDistance = dist
 		}
 	}
 
-	return closest
+	if DEBUG {
+		log.Println("total score", s.TotalScore)
+		l := 10
+		scored := s.ByScore()
+		if len(scored) < 10 {
+			l = len(scored)
+		}
+		for _, chunk := range s.ByScore()[:l] {
+			log.Println("chunk", chunk, "score", s.Scores[chunk])
+		}
+	}
+
+	return closest, s.Scores[closest] * 1000 / s.TotalScore
 }
 
-func (s Guesses) Len() int {
-	return len(s)
-}
-
-func (s Guesses) Less(a, b int) bool {
-	return s[a].Confidence > s[b].Confidence
-}
-
-func (s Guesses) Swap(a, b int) {
-	s[a], s[b] = s[b], s[a]
-}
-
-func GetBlindGuess(t Throw) Guess {
+func GetBlindGuess(t Throw) Chunk {
 	d := dist(0, 0, t.X, t.Y)
 	x, y := t.X/d, t.Y/d
-	return Guess{Chunk: ChunkFromPosition(x*111*16, y*111*16), Confidence: 76}
+	return ChunkFromPosition(x*111*16, y*111*16)
+}
+
+func Must(e error) {
+	if e != nil {
+		panic(e)
+	}
 }

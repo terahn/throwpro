@@ -5,6 +5,20 @@ import (
 	"math"
 )
 
+func OneEyeSet() LayerSet {
+	return LayerSet{
+		AnglePref: radsFromDegs(0.035),
+		RingMod:   105,
+	}
+}
+
+func TwoEyeSet() LayerSet {
+	return LayerSet{
+		AnglePref: radsFromDegs(0.06),
+		RingMod:   95,
+	}
+}
+
 var rings = [][2]int{{1408, 2688}, {4480, 5760}, {7552, 8832}, {10624, 11904}, {13696, 14976}, {16768, 18048}, {19840, 21120}, {22912, 24192}}
 
 func ChunkFromCenter(x, y int) Chunk {
@@ -20,9 +34,18 @@ func (c Chunk) Staircase() (int, int) {
 	return x - 4, y - 4
 }
 
+func (c Chunk) Distance(other interface{}) float64 {
+	return c.ChunkDist(other.(Chunk))
+}
+
+func (c Chunk) GetID() string {
+	return fmt.Sprintf(`%d,%d`, c[0], c[1])
+}
+
 func (c Chunk) String() string {
 	x, y := c.Center()
-	return fmt.Sprintf("chunk %d,%d (center %d, %d)", c[0], c[1], x, y)
+	ring := RingID(c)
+	return fmt.Sprintf("chunk %d,%d (center %d, %d, ring %d)", c[0], c[1], x, y, ring)
 }
 
 func RingID(c Chunk) int {
@@ -38,20 +61,6 @@ func RingID(c Chunk) int {
 		return n
 	}
 	return -1
-}
-
-func OneEyeSet() LayerSet {
-	return LayerSet{
-		AnglePref: radsFromDegs(2),
-		RingMod:   150,
-	}
-}
-
-func TwoEyeSet() LayerSet {
-	return LayerSet{
-		AnglePref: radsFromDegs(.69),
-		RingMod:   282,
-	}
 }
 
 type LayerSet struct {
@@ -70,7 +79,7 @@ func (ls LayerSet) Ring(t Throw, c Chunk) int {
 	}
 	cDist := c.Dist(0, 0)
 	minDist, maxDist := float64(rings[ringID][0]), float64(rings[ringID][1])
-	preferred := minDist + (maxDist-minDist)*.2
+	preferred := minDist + (maxDist-minDist)*.4
 	ring := cDist - preferred
 	if ring < ls.RingMod {
 		return 3
@@ -83,16 +92,10 @@ func (ls LayerSet) Ring(t Throw, c Chunk) int {
 
 func (ls LayerSet) Preference(t Throw, c Chunk) int {
 	dist := c.Dist(t.X, t.Y)
-	if dist < ls.RingMod*9 {
-		return 4
-	}
-	if dist < ls.RingMod*15 {
-		return 3
-	}
-	if dist < ls.RingMod*21 {
+	if dist < ls.RingMod*50 {
 		return 2
 	}
-	if dist < ls.RingMod*27 {
+	if dist < ls.RingMod*150 {
 		return 1
 	}
 	return 0
@@ -100,19 +103,19 @@ func (ls LayerSet) Preference(t Throw, c Chunk) int {
 
 func (ls LayerSet) Angle(t Throw, c Chunk) int {
 	delta := math.Abs(c.Angle(t.A, t.X, t.Y))
+	if delta > radsFromDegs(.7) {
+		return 0
+	}
 	if delta < ls.AnglePref {
 		return 4
 	}
 	if delta < ls.AnglePref*2 {
 		return 3
 	}
-	if delta > ls.AnglePref*3 {
+	if delta < ls.AnglePref*3 {
 		return 2
 	}
-	if delta > ls.AnglePref*5 {
-		return 1
-	}
-	return 0
+	return 1
 }
 
 func dist(x, y, x2, y2 float64) float64 {
@@ -169,12 +172,6 @@ func ChunksInThrow(t Throw) ChunkList {
 		for xo := -1; xo < 1; xo++ {
 			for yo := -1; yo < 1; yo++ {
 				chunk := Chunk{(blockX-centerX)/16 + xo, (blockY-centerY)/16 + yo}
-				if RingID(chunk) == -1 {
-					continue
-				}
-				if chunk.Dist(t.X, t.Y) > 4000 {
-					continue
-				}
 				if _, found := chunksFound[chunk]; !found {
 					chunksFound[chunk] = true
 					chunks = append(chunks, chunk)

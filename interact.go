@@ -61,6 +61,7 @@ func NewSessionManager(d time.Duration) *SessionManager {
 		Guess:    make(chan string, 10),
 		Duration: d,
 	}
+	DEBUG = true
 
 	sm.timer = time.AfterFunc(0, func() { sm.Message(waiting, waiting2) })
 	sm.Reset()
@@ -104,83 +105,45 @@ func (sm *SessionManager) Input(s string) {
 		return
 	}
 	for _, t := range sm.ActiveSession.Throws {
-		if throw.Similar(t.Throw) {
+		if throw.Similar(t) {
 			return
 		}
 	}
 
-	matches := sm.ActiveSession.NewThrow(throw)
-	guesses := sm.ActiveSession.Guess()
-	if matches == 0 || len(guesses) == 0 {
+	newSession := len(sm.ActiveSession.Throws) == 0
+	if !newSession {
+		sm.ActiveSession.NewThrow(throw)
+		matches := len(sm.ActiveSession.Scores)
+		log.Println("matches", matches, "chunks", len(sm.ActiveSession.Scores))
+		if matches == 0 {
+			newSession = true
+		}
+	}
+
+	if newSession {
 		sm.ActiveSession = NewSession()
 		sm.ActiveSession.NewThrow(throw)
-		blind := sm.ActiveSession.Guess().Central()
+		log.Println("initial chunks", len(sm.ActiveSession.Scores))
+
+		blind, _ := sm.ActiveSession.BestGuess()
 		x, y := blind.Staircase()
 		distPlayer := blind.Dist(throw.X, throw.Y)
 		if distPlayer > 350 {
-			distStr := "very far"
-			if distPlayer < 1100 {
-				distStr = "quite far"
-			}
-			if distPlayer < 700 {
-				distStr = "pretty far"
-			}
-			sm.Message(fmt.Sprintf(lns("%d,%d nether to go %s.", "(%d,%d overworld)"), x/8, y/8, distStr, x, y), "Mode: Educated Travel")
+			distStr := fmt.Sprintf(`%.1fk`, distPlayer/1000)
+			sm.Message(fmt.Sprintf(lns("%d,%d nether to go %s blocks.", "(%d,%d overworld)"), x/8, y/8, distStr, x, y), "Mode: Educated Travel")
 			return
 		}
 	}
-	guess := guesses.Central()
+
+	guess, confidence := sm.ActiveSession.BestGuess()
 	x, y := guess.Staircase()
-	totalConf := guesses[0].Confidence
-	maxConf := guesses[0].Confidence
-	maxDist := 0.0
-
-	for _, g := range guesses[1:] {
-		if g.Confidence < maxConf*8/10 {
-			continue
-		}
-		totalConf += g.Confidence
-		dist := guess.ChunkDist(g.Chunk)
-		if dist > maxDist {
-			maxDist = dist
-		}
-	}
-
-	distStr := "far away"
 	distPlayer := guess.Dist(throw.X, throw.Y)
-	if distPlayer < 1100 {
-		distStr = "quite far"
-	}
-	if distPlayer < 700 {
-		distStr = "not too far"
-	}
-	if distPlayer < 400 {
-		distStr = "not far at all"
-	}
-	if distPlayer < 200 {
-		distStr = "really close by"
-	}
+	distStr := fmt.Sprintf(`%.1fk`, distPlayer/1000)
 
-	conf := float64((guess.Confidence * 100) / totalConf)
-	accuracy := "a WILD guess"
-	if conf > .7 {
-		accuracy = "a ROUGH guess"
-	}
-	if conf > 1.7 {
-		accuracy = "a POOR guess"
-	}
-	if conf > 2.9 {
-		accuracy = "an OKAY guess"
-	}
-	if conf > 5.7 {
-		accuracy = "a GOOD guess"
-	}
-	if conf > 10 {
-		accuracy = "a GREAT guess"
-	}
-
-	msg := fmt.Sprintf("%d,%d is %s", x, y, accuracy)
-	sm.Message(msg, lns(fmt.Sprintf(`It's %s!`, distStr), "Mode: Overworld Triangulation"))
+	conf := float64(confidence / 10)
+	accuracy := fmt.Sprintf(`%.1f%%`, conf)
+	msg := fmt.Sprintf("%d,%d is %s likely", x, y, accuracy)
+	sm.Message(msg, lns(fmt.Sprintf(`Distance: %s blocks`, distStr), "Mode: Overworld Triangulation"))
 }
 
 func ClipboardReader() {
@@ -259,7 +222,7 @@ func ClipboardReader() {
 		log.Println("error", err.Error())
 		f = nil
 	}
-	sm := NewSessionManager(6 * time.Minute)
+	sm := NewSessionManager(8 * time.Minute)
 
 	var status, guess string
 	go func() {

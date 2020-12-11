@@ -1,50 +1,19 @@
 package throwpro
 
 import (
+	"log"
 	"math/rand"
 	"strconv"
 	"strings"
 	"testing"
 )
 
-var heuristicTests = [][5]float64{
-	{-214.79, 386.16, 76.50, -1608, 728},
-	{320.18, 255.34, -53.40, 1240, 936},
-	{454.38, -319.63, -188.55, 248, -1688},
-	{-87.85, -434.11, 575.85, 504, -1256},
-	{-1003.81, 170.63, 448.94, -2600, 200},
-	{-146.06, 457.92, 668.39, 1192, 1528},
-}
-
-func TestHeuristics(t *testing.T) {
-testing:
-	for n, heuristic := range heuristicTests {
-		sess := NewSession()
-		sess.NewThrow(NewThrow(heuristic[0], heuristic[1], heuristic[2]))
-		goal := ChunkFromCenter(int(heuristic[3]), int(heuristic[4]))
-		found := sess.Guess()
-		for _, f := range found {
-			if f.Chunk == goal {
-				continue testing
-			}
-		}
-		t.Errorf("test %d failed, stronghold %s not found", n, goal)
-		t.Logf("chunk had dist of %f", goal.Dist(0, 0))
-		for _, f := range found {
-			x, y := f.Center()
-			if goal.Dist(float64(x), float64(y)) < 20 {
-				t.Logf("did find %s nearby", f)
-			}
-		}
-	}
-}
-
 type progressionTest struct {
 	throws []Throw
 	goal   Chunk
 }
 
-var progressionTests = []progressionTest{
+var progressionTests = append([]progressionTest{
 	{
 		throws: []Throw{NewThrowFromArray([3]float64{294.96, -486.85, -499.05}),
 			NewThrowFromArray([3]float64{362.90, -669.03, -493.95}),
@@ -63,21 +32,26 @@ var progressionTests = []progressionTest{
 			NewThrowFromArray([3]float64{63.99, 198.62, -129.60})},
 		goal: ChunkFromCenter(1352, -872),
 	},
-}
+}, loadTestsFromString(sample1)...)
 
 func TestTriangulationAccuracy(t *testing.T) {
 	distances := []int{0, 0, 0}
 	totals := []int{0, 0, 0}
-	for _, test := range append(progressionTests, loadTestsFromString(sample1)...) {
+	for _, test := range progressionTests {
+		DEBUG_CHUNK = test.goal
 		sess := NewSession()
-		for num, throw := range test.throws {
+		throws := test.throws
+		if len(throws) > 3 {
+			throws = throws[:3]
+		}
+		for num, throw := range throws {
 			sess.NewThrow(throw)
-			bestGuess := sess.Guess().Central()
+			bestGuess, _ := sess.BestGuess()
 			chunkDist := int(bestGuess.ChunkDist(test.goal))
 
 			if chunkDist > 10000 {
 				t.Logf("bad test result %#v, guessed %s", test, bestGuess)
-				t.Log(sess.Explain(throw, test.goal, bestGuess.Chunk))
+				t.Log(sess.Explain(throw, test.goal, bestGuess))
 			}
 			distances[num] += chunkDist
 			totals[num]++
@@ -86,30 +60,33 @@ func TestTriangulationAccuracy(t *testing.T) {
 
 	for throw, score := range distances {
 		score = score / totals[throw]
-		t.Logf("average throw %d accuracy: %d blocks", throw+1, score)
+		t.Logf("average throw %d accuracy for %d samples: %d blocks", throw+1, totals[throw], score)
 	}
 }
 
 func TestTuneAccuracy(t *testing.T) {
-	ls := OneEyeSet()
-	acc := AverageAccuracy(ls, 1)
-	for i := 0; i < 2; i++ {
+	ls := TwoEyeSet()
+	acc, _ := AverageAccuracy(ls, 2)
+	log.Println("better params", ls, acc)
+	for i := 0; i < 1; i++ {
 		test := LayerSet{AnglePref: ls.AnglePref, RingMod: ls.RingMod}
-		test.AnglePref += (rand.Float64() - .5) * 0.2
+		// test.AnglePref += (rand.Float64() - .5) * .001
 		test.RingMod += (rand.Float64() - .5) * 10
-		newACC := AverageAccuracy(test, 1)
+		newACC, _ := AverageAccuracy(test, 2)
+		// log.Println("trying params", test, newACC)
 		if newACC < acc {
 			ls = test
 			acc = newACC
-			t.Log("better params", ls, newACC)
+			log.Println("better params", ls, acc)
 		}
 	}
 }
 
-func AverageAccuracy(ls LayerSet, throws int) float64 {
+func AverageAccuracy(ls LayerSet, throws int) (float64, int) {
 	distances := 0.0
 	totals := 0.0
-	for _, test := range append(progressionTests, loadTestsFromString(sample1)...) {
+	for _, test := range progressionTests {
+		DEBUG_CHUNK = test.goal
 		sess := NewSession(ls)
 		if len(test.throws) < throws {
 			continue
@@ -117,58 +94,50 @@ func AverageAccuracy(ls LayerSet, throws int) float64 {
 		for _, throw := range test.throws[:throws] {
 			sess.NewThrow(throw)
 		}
-		bestGuess := sess.Guess().Central()
+		bestGuess, _ := sess.BestGuess()
 		distances += bestGuess.ChunkDist(test.goal)
 		totals++
 	}
 
-	return distances / totals
+	return distances / totals, int(totals)
 }
 
 func TestEducatedAccuracy(t *testing.T) {
 	distance := 0
-	for _, heuristic := range heuristicTests {
-		throw := NewThrow(heuristic[0], heuristic[1], heuristic[2])
-		goal := ChunkFromCenter(int(heuristic[3]), int(heuristic[4]))
+	for _, test := range progressionTests {
+		DEBUG_CHUNK = test.goal
+		throw := test.throws[0]
+		goal := test.goal
 
 		sess := NewSession()
 		sess.NewThrow(throw)
-		guess := sess.Guess().Central()
+		guess, _ := sess.BestGuess()
 		chunkDist := int(guess.ChunkDist(goal))
-		distance += chunkDist / len(heuristicTests)
+		distance += chunkDist / len(progressionTests)
 		t.Logf("goal %s, guess %s", goal, guess)
 	}
 	t.Logf("average educated accuracy: %d blocks", distance)
 }
 
 func TestProgression(t *testing.T) {
-	test := progressionTests[2]
+	test := progressionTests[1]
+	DEBUG_CHUNK = test.goal
+	DEBUG = true
 	sess := NewSession()
 	runnerUp := Chunk{56, -75}
 
 	for n, throw := range test.throws {
-		matches := sess.NewThrow(throw)
-		guesses := sess.Guess()
+		sess.NewThrow(throw)
+		guess, _ := sess.BestGuess()
 
-		highScore := guesses[0].Confidence
-		for _, c := range guesses {
-			if c.Confidence < highScore-1 {
-				break
-			}
-			t.Logf("%s confidence %d", c, c.Confidence)
-			t.Logf("current angle: %f", c.Angle(throw.A, throw.X, throw.Y))
+		t.Logf("current angle: %f", guess.Angle(throw.A, throw.X, throw.Y))
+		if guess == test.goal {
+			t.Logf("goal angle: %f", guess.Angle(throw.A, throw.X, throw.Y))
 		}
-		for _, c := range guesses {
-			if c.Chunk == test.goal {
-				t.Logf("%s confidence %d", c, c.Confidence)
-				t.Logf("goal angle: %f", c.Angle(throw.A, throw.X, throw.Y))
-			}
-			if c.Chunk == runnerUp {
-				t.Logf("%s confidence %d", c, c.Confidence)
-				t.Logf("runnerUp angle: %f", c.Angle(throw.A, throw.X, throw.Y))
-			}
+		if guess == runnerUp {
+			t.Logf("runnerUp angle: %f", guess.Angle(throw.A, throw.X, throw.Y))
 		}
-		t.Logf("throw %d matched %d, educated guess: %s", n, matches, guesses.String())
+		t.Logf("throw %d matched %d, educated guess: %s, goal: %s", n, len(sess.Scores), guess, test.goal)
 	}
 }
 
@@ -189,7 +158,7 @@ func loadTestsFromString(s string) []progressionTest {
 			x, _ := strconv.Atoi(a)
 			y, _ := strconv.Atoi(b)
 			test.goal = ChunkFromCenter(x, y)
-			if test.goal.Dist(0, 0) > 1200 && test.goal.Dist(0, 0) < 2500 {
+			if test.goal.Dist(0, 0) > 1400 && test.goal.Dist(0, 0) < 2500 {
 				tests = append(tests, test)
 			}
 			test = progressionTest{}
@@ -224,6 +193,17 @@ personal collection:
 /execute in minecraft:overworld run tp @s -864.93 99.97 21.17 130.20 -31.65
 /execute in minecraft:overworld run tp @s -1041.26 86.47 -48.11 134.40 -27.15
 /tp @s -1624 ~ -616
+/execute in minecraft:overworld run tp @s -351.13 112.21 2246.84 109.35 -32.40
+/execute in minecraft:overworld run tp @s -467.01 112.21 2137.93 90.45 -25.80
+/execute in minecraft:overworld run tp @s -612.55 112.21 2048.49 30.15 -29.85
+/tp @s -664 ~ 2136
+/execute in minecraft:overworld run tp @s 70.27 96.91 771.62 358.95 -28.95
+/execute in minecraft:overworld run tp @s -50.34 96.91 1277.49 345.15 -31.05
+/execute in minecraft:overworld run tp @s -69.16 96.91 1440.67 336.45 -30.45
+/execute in minecraft:overworld run tp @s 3.65 96.91 1646.68 331.20 -30.90
+/execute in minecraft:overworld run tp @s 142.77 96.91 1824.68 474.45 -30.15
+/execute in minecraft:overworld run tp @s 21.90 96.91 1868.91 583.65 -31.50
+/tp @s 88 ~ 1800
 
 Stronghold data from BadSap:
 /execute in minecraft:overworld run tp @s 109.30 80.00 -152.32 -272.10 -28.50
