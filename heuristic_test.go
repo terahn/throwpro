@@ -2,7 +2,6 @@ package throwpro
 
 import (
 	"log"
-	"math/rand"
 	"strconv"
 	"strings"
 	"testing"
@@ -64,14 +63,28 @@ func TestTriangulationAccuracy(t *testing.T) {
 	}
 }
 
-func TestTuneAccuracy(t *testing.T) {
+func TestTuneOneConfigs(t *testing.T) {
+	ls := OneEyeSet()
+	acc, _ := AverageAccuracy(ls, 1)
+	log.Println("better params", ls, acc)
+	for i := 0; i < 100; i++ {
+		test := ls.Mutate()
+		newACC, _ := AverageAccuracy(test, 1)
+		// log.Println("trying params", test, newACC)
+		if newACC < acc {
+			ls = test
+			acc = newACC
+			log.Println("better params", ls, acc)
+		}
+	}
+}
+
+func TestTuneTwoConfigs(t *testing.T) {
 	ls := TwoEyeSet()
 	acc, _ := AverageAccuracy(ls, 2)
 	log.Println("better params", ls, acc)
-	for i := 0; i < 1; i++ {
-		test := LayerSet{AnglePref: ls.AnglePref, RingMod: ls.RingMod}
-		// test.AnglePref += (rand.Float64() - .5) * .001
-		test.RingMod += (rand.Float64() - .5) * 10
+	for i := 0; i < 100; i++ {
+		test := ls.Mutate()
 		newACC, _ := AverageAccuracy(test, 2)
 		// log.Println("trying params", test, newACC)
 		if newACC < acc {
@@ -117,6 +130,26 @@ func TestEducatedAccuracy(t *testing.T) {
 		t.Logf("goal %s, guess %s", goal, guess)
 	}
 	t.Logf("average educated accuracy: %d blocks", distance)
+}
+
+func TestDeterministic(t *testing.T) {
+	for _, test := range progressionTests[:3] {
+		DEBUG_CHUNK = test.goal
+		throw := test.throws[0]
+
+		sess1 := NewSession()
+		sess1.NewThrow(throw)
+		guess1, c1 := sess1.BestGuess()
+
+		sess2 := NewSession()
+		sess2.NewThrow(throw)
+		guess2, c2 := sess2.BestGuess()
+
+		t.Log(guess1, c1, guess2, c2)
+		if guess1 != guess2 || c1 != c2 {
+			t.Errorf("mismatching guesses")
+		}
+	}
 }
 
 func TestProgression(t *testing.T) {

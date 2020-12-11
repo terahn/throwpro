@@ -2,22 +2,10 @@ package throwpro
 
 import (
 	"fmt"
+	"log"
 	"math"
+	"math/rand"
 )
-
-func OneEyeSet() LayerSet {
-	return LayerSet{
-		AnglePref: radsFromDegs(0.035),
-		RingMod:   105,
-	}
-}
-
-func TwoEyeSet() LayerSet {
-	return LayerSet{
-		AnglePref: radsFromDegs(0.06),
-		RingMod:   95,
-	}
-}
 
 var rings = [][2]int{{1408, 2688}, {4480, 5760}, {7552, 8832}, {10624, 11904}, {13696, 14976}, {16768, 18048}, {19840, 21120}, {22912, 24192}}
 
@@ -63,23 +51,43 @@ func RingID(c Chunk) int {
 	return -1
 }
 
+type Layer func([]Throw, Chunk) int
+
 type LayerSet struct {
-	AnglePref float64
-	RingMod   float64
+	AnglePref       float64
+	RingMod         float64
+	AverageDistance float64
+	MathFactor      float64
 }
 
-func (ls LayerSet) Layers() []func(Throw, Chunk) int {
-	return []func(Throw, Chunk) int{ls.Angle, ls.Ring, ls.Preference}
+func (ls LayerSet) Mutate() LayerSet {
+	factor := 0.20
+	eff := (rand.Float64() - .5) * 2 * factor
+	switch rand.Intn(4) {
+	case 0:
+		ls.AnglePref *= 1 + eff
+	case 1:
+		ls.AverageDistance *= 1 + eff
+	case 2:
+		ls.RingMod *= 1 + eff
+	case 3:
+		ls.MathFactor *= 1 + eff
+	}
+	return ls
 }
 
-func (ls LayerSet) Ring(t Throw, c Chunk) int {
+func (ls LayerSet) Layers() []Layer {
+	return []Layer{ls.Angle, ls.Ring, ls.CrossAngle}
+}
+
+func (ls LayerSet) Ring(t []Throw, c Chunk) int {
 	ringID := RingID(c)
 	if ringID == -1 {
 		return 0
 	}
 	cDist := c.Dist(0, 0)
 	minDist, maxDist := float64(rings[ringID][0]), float64(rings[ringID][1])
-	preferred := minDist + (maxDist-minDist)*.4
+	preferred := minDist + (maxDist-minDist)*ls.AverageDistance
 	ring := cDist - preferred
 	if ring < ls.RingMod {
 		return 3
@@ -90,32 +98,78 @@ func (ls LayerSet) Ring(t Throw, c Chunk) int {
 	return 1
 }
 
-func (ls LayerSet) Preference(t Throw, c Chunk) int {
-	dist := c.Dist(t.X, t.Y)
-	if dist < ls.RingMod*50 {
-		return 2
+func (ls LayerSet) Angle(ts []Throw, c Chunk) int {
+	total := 0
+	for _, t := range ts {
+		delta := math.Abs(c.Angle(t.A, t.X, t.Y))
+		if delta > radsFromDegs(.7) {
+			return 0
+		}
+		if delta < ls.AnglePref {
+			total += 4
+		}
+		if delta < ls.AnglePref*2 {
+			total += 3
+		}
+		if delta < ls.AnglePref*3 {
+			total += 2
+		}
+		total += 1
 	}
-	if dist < ls.RingMod*150 {
-		return 1
-	}
-	return 0
+	return total
 }
 
-func (ls LayerSet) Angle(t Throw, c Chunk) int {
-	delta := math.Abs(c.Angle(t.A, t.X, t.Y))
-	if delta > radsFromDegs(.7) {
-		return 0
+func (ls LayerSet) CrossAngle(ts []Throw, c Chunk) int {
+	if len(ts) <= 1 {
+		return 1
 	}
-	if delta < ls.AnglePref {
-		return 4
+	printout := rand.Intn(10000) == 0
+	if c == DEBUG_CHUNK {
+		printout = true
 	}
-	if delta < ls.AnglePref*2 {
-		return 3
+	if !DEBUG {
+		printout = false
 	}
-	if delta < ls.AnglePref*3 {
-		return 2
+	score := 1
+	ax := 0.0
+	ay := 0.0
+	for n, t := range ts[:len(ts)-1] {
+		for _, ot := range ts[n+1:] {
+			k := ((ot.Y-t.Y)*math.Sin(ot.A) + (ot.X-t.X)*math.Cos(ot.A)) / math.Sin(ot.A-t.A)
+			ny := t.Y + k*math.Cos(t.A)
+			nx := t.X - k*math.Sin(t.A)
+
+			distFromPerfect := c.Dist(nx, ny)
+
+			if printout {
+				log.Printf("chunk %s crossangle %.1f %.1f dist %.1f", c, ax, ay, distFromPerfect)
+				log.Println("throws", ts)
+				log.Println("debug chunk", DEBUG_CHUNK)
+			}
+			if distFromPerfect < ls.MathFactor {
+				score += 4
+			}
+			if distFromPerfect < ls.MathFactor*5 {
+				score += 3
+			}
+			if distFromPerfect < ls.MathFactor*12 {
+				score += 2
+			}
+			if distFromPerfect < ls.MathFactor*25 {
+				score += 1
+			}
+
+			ay += ny
+			ax += nx
+			if printout {
+				log.Printf("chunk %s crossangle %.1f %.1f", c, nx, ny)
+			}
+		}
 	}
-	return 1
+	// ax /= float64(len(ts))
+	// ay /= float64(len(ts))
+
+	return score
 }
 
 func dist(x, y, x2, y2 float64) float64 {

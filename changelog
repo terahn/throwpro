@@ -1,3 +1,8 @@
+v 0.4
+- added dbscan clustering support
+- all parameters are now machine learning provided
+- "secret" info enabled debugging and cluster rendering
+
 v 0.3
 - lower average errors, 1 throws from 1108 to 332, 2 throw from 235 to 214 blocks
 - internally refactor to support multiple confidence layers

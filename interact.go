@@ -139,7 +139,7 @@ func (sm *SessionManager) Input(s string) {
 	distPlayer := guess.Dist(throw.X, throw.Y)
 	distStr := fmt.Sprintf(`%.1fk`, distPlayer/1000)
 
-	conf := float64(confidence / 10)
+	conf := float64(confidence) / 10.0
 	accuracy := fmt.Sprintf(`%.1f%%`, conf)
 	msg := fmt.Sprintf("%d,%d is %s likely", x, y, accuracy)
 	sm.Message(msg, lns(fmt.Sprintf(`Distance: %s blocks`, distStr), "Mode: Overworld Triangulation"))

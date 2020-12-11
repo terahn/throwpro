@@ -15,7 +15,25 @@ var DEBUG = false
 
 var DEBUG_CHUNK Chunk
 
-const CHUNK_GROUP = 1500
+const CHUNK_GROUP = 2000
+
+func OneEyeSet() LayerSet {
+	return LayerSet{
+		AnglePref:       radsFromDegs(0.17),
+		RingMod:         107,
+		AverageDistance: 0.51,
+		MathFactor:      47,
+	}
+}
+
+func TwoEyeSet() LayerSet {
+	return LayerSet{
+		AnglePref:       radsFromDegs(0.09),
+		RingMod:         100,
+		AverageDistance: 0.27,
+		MathFactor:      40,
+	}
+}
 
 type ChunkList []Chunk
 
@@ -72,14 +90,13 @@ func (s *Session) Explain(t Throw, goal Chunk, guess Chunk) string {
 		logs = append(logs, fmt.Sprintf("\n%s angle %f, ring %d, scores", c, c.Angle(t.A, t.X, t.Y), RingID(c)))
 
 		for _, l := range s.Layers() {
-			logs = append(logs, fmt.Sprintf(`l1(%d)`, l(t, c)))
+			logs = append(logs, fmt.Sprintf(`l1(%d)`, l([]Throw{t}, c)))
 		}
-		logs = append(logs, fmt.Sprintf("total %d", s.Score(t, c)))
 	}
 	return strings.Join(logs, ",")
 }
 
-func (s *Session) SumScores(layers []func(Throw, Chunk) int) (map[Chunk]int, int) {
+func (s *Session) SumScores(layers []Layer) (map[Chunk]int, int) {
 	scores := make(map[Chunk]int)
 	reject := make(map[Chunk]bool)
 	count := make(map[Chunk]int)
@@ -89,15 +106,17 @@ func (s *Session) SumScores(layers []func(Throw, Chunk) int) (map[Chunk]int, int
 		chunks := ChunksInThrow(t)
 		for _, c := range chunks {
 			count[c]++
-			score := s.Score(t, c)
-			if score == 0 {
-				reject[c] = true
-				continue
-			}
-			scores[c] += score
-			if scores[c] > highest {
-				highest = scores[c]
-			}
+		}
+	}
+	for c := range count {
+		score := s.Score(c)
+		if score == 0 {
+			reject[c] = true
+			continue
+		}
+		scores[c] += score
+		if scores[c] > highest {
+			highest = scores[c]
 		}
 	}
 	// clear all totally rejected chunk scores
@@ -118,10 +137,10 @@ func (s *Session) SumScores(layers []func(Throw, Chunk) int) (map[Chunk]int, int
 	return scores, total
 }
 
-func (s *Session) Score(t Throw, c Chunk) int {
+func (s *Session) Score(c Chunk) int {
 	score := 0
 	for _, l := range s.Layers() {
-		s := l(t, c)
+		s := l(s.Throws, c)
 		if s == 0 {
 			// log.Println("chunk", c, "failed test", n)
 			return 0
@@ -136,17 +155,11 @@ func (s *Session) Chunks() []Chunk {
 	for chunk := range s.Scores {
 		chunks = append(chunks, chunk)
 	}
-	sort.SliceStable(chunks, func(i int, j int) bool {
-		if chunks[i][0] < chunks[j][0] {
-			return true
+	sort.Slice(chunks, func(i int, j int) bool {
+		if chunks[i][0] == chunks[j][0] {
+			return chunks[i][1] < chunks[j][1]
 		}
-		if chunks[i][1] < chunks[j][1] {
-			return true
-		}
-		if chunks[i] == chunks[j] {
-			panic("equal chunks")
-		}
-		return false
+		return chunks[i][1] < chunks[j][1]
 	})
 	return chunks
 }
@@ -164,7 +177,7 @@ func (s *Session) NewThrow(t Throw) {
 	s.Scores, s.TotalScore = s.SumScores(s.Layers())
 }
 
-func (s *Session) Layers() []func(Throw, Chunk) int {
+func (s *Session) Layers() []Layer {
 	if s.CustomLayer != nil {
 		return s.CustomLayer.Layers()
 	}
@@ -185,7 +198,7 @@ func (s *Session) BestGuess() (Chunk, int) {
 	counted := 0
 	for _, c := range chunks {
 		if s.Scores[c] < averageScore {
-			continue
+			// continue
 		}
 		counted++
 		pts = append(pts, c)
@@ -198,16 +211,21 @@ func (s *Session) BestGuess() (Chunk, int) {
 		group := clusters.Cluster{}
 		group.Center = []float64{0, 0}
 
+		totalScore := 0
 		for _, point := range c {
-			x, y := point.(Chunk).Center()
-			group.Center[0] += float64(x)
-			group.Center[1] += float64(y)
+			chunk := point.(Chunk)
+
+			score := s.Scores[chunk]
+			x, y := chunk.Center()
+			group.Center[0] += float64(x * score)
+			group.Center[1] += float64(y * score)
+			totalScore += score
 
 			kobs := clusters.Coordinates([]float64{float64(x), float64(y)})
 			group.Observations = append(group.Observations, kobs)
 		}
-		group.Center[0] /= float64(len(group.Observations))
-		group.Center[1] /= float64(len(group.Observations))
+		group.Center[0] /= float64(totalScore)
+		group.Center[1] /= float64(totalScore)
 
 		clusterGroups[id] = group
 		if len(c) > 1 {
@@ -269,9 +287,9 @@ func (s *Session) BestGuess() (Chunk, int) {
 
 	if DEBUG {
 		log.Println("total score", s.TotalScore)
-		l := 10
+		l := 20
 		scored := s.ByScore()
-		if len(scored) < 10 {
+		if len(scored) < l {
 			l = len(scored)
 		}
 		for _, chunk := range s.ByScore()[:l] {
@@ -279,7 +297,7 @@ func (s *Session) BestGuess() (Chunk, int) {
 		}
 	}
 
-	return closest, s.Scores[closest] * 1000 / s.TotalScore
+	return closest, s.Scores[closest] * 1000 / (s.TotalScore + 2)
 }
 
 func GetBlindGuess(t Throw) Chunk {
