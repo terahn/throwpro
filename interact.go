@@ -61,7 +61,6 @@ func NewSessionManager(d time.Duration) *SessionManager {
 		Guess:    make(chan string, 10),
 		Duration: d,
 	}
-	DEBUG = true
 
 	sm.timer = time.AfterFunc(0, func() { sm.Message(waiting, waiting2) })
 	sm.Reset()
@@ -174,12 +173,14 @@ func ClipboardReader() {
 			mainUI.Hide()
 			secondUI.Hide()
 			showButton.SetText("Hide Secret Details")
+			DEBUG = true
 			return
 		}
 		infoUI.Hide()
 		debugUI.Hide()
 		mainUI.Show()
 		secondUI.Show()
+		DEBUG = false
 		showButton.SetText("Show Secret Details")
 	}
 	infoUI.Hide()
