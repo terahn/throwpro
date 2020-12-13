@@ -259,7 +259,8 @@ func (d *Display) Refresh() {
 	status := replacer.Replace(FORMATS[guess.Method])
 	mode := "Mode: " + METHODS[guess.Method]
 	if portal := d.sm.Portal; portal != nil {
-		mode = fmt.Sprintf("Portal: %d,%d", portal[0], portal[1])
+		mode = fmt.Sprintf("Portal Location: %d,%d", portal[0], portal[1])
+		status += fmt.Sprintf("\nportal location: %d,%d", portal[0], portal[1])
 	}
 
 	log.Println("updating ui...", status, mode)
