@@ -81,9 +81,9 @@ func NewThrow(x, y, a float64) Throw {
 }
 
 func NewBlindThrow(x, y float64) Throw {
-	atan := math.Atan2(x, y) + math.Pi*2
+	atan := math.Atan2(-x, y) + math.Pi*2
 	atan = math.Mod(atan, math.Pi*2)
-	return Throw{Type: Blind, A: atan}
+	return Throw{X: x, Y: y, Type: Blind, A: atan}
 }
 
 func (t Throw) Similar(other Throw) bool {
@@ -208,7 +208,7 @@ func (s *Session) BestGuess(ts ...Throw) Guess {
 	counted := 0
 	for _, c := range chunks {
 		if s.Scores[c] < averageScore {
-			// continue
+			continue
 		}
 		counted++
 		score := s.Scores[c]
@@ -332,17 +332,5 @@ func (s *Session) BestGuess(ts ...Throw) Guess {
 		Chunk:      closest,
 		Confidence: s.Scores[closest] * 1000 / (s.TotalScore + 2),
 		Method:     s.Layers().Code,
-	}
-}
-
-func GetBlindGuess(t Throw) Chunk {
-	d := dist(0, 0, t.X, t.Y)
-	x, y := t.X/d, t.Y/d
-	return ChunkFromPosition(x*111*16, y*111*16)
-}
-
-func Must(e error) {
-	if e != nil {
-		panic(e)
 	}
 }

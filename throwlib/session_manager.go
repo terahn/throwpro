@@ -36,13 +36,20 @@ func (sm *SessionManager) NewThrow(throw Throw) {
 		if sm.Portal == nil {
 			sm.Portal = &[2]int{int(throw.X / 8), int(throw.Y / 8)}
 		}
-		return
+		if len(sm.Throws) > 0 {
+			return
+		}
 	}
 
 	for _, t := range sm.Throws {
 		if throw.Similar(t) {
 			return
 		}
+	}
+
+	if throw.Type == Blind {
+		throw.X = 0
+		throw.Y = 0
 	}
 
 	sm.Throws = append(sm.Throws, throw)
