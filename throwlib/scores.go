@@ -1,7 +1,6 @@
 package throwlib
 
 import (
-	"fmt"
 	"log"
 	"math"
 	"math/rand"
@@ -15,25 +14,6 @@ func ChunkFromCenter(x, y int) Chunk {
 
 func ChunkFromPosition(x, y float64) Chunk {
 	return Chunk{(int(x) - modLikePython(int(x), 16)) / 16, (int(y) - modLikePython(int(y), 16)) / 16}
-}
-
-func (c Chunk) Staircase() (int, int) {
-	x, y := c.Center()
-	return x - 4, y - 4
-}
-
-func (c Chunk) Distance(other interface{}) float64 {
-	return c.ChunkDist(other.(Chunk))
-}
-
-func (c Chunk) GetID() string {
-	return fmt.Sprintf(`%d,%d`, c[0], c[1])
-}
-
-func (c Chunk) String() string {
-	x, y := c.Center()
-	ring := RingID(c)
-	return fmt.Sprintf("chunk %d,%d (center %d, %d, ring %d)", c[0], c[1], x, y, ring)
 }
 
 func RingID(c Chunk) int {
@@ -55,12 +35,14 @@ type Layer func([]Throw, Chunk) int
 
 type LayerSet struct {
 	Code string
-	Name string
 
 	AnglePref       float64
 	RingMod         float64
 	AverageDistance float64
 	MathFactor      float64
+	ClusterWeight   float64
+
+	Weights [3]int
 }
 
 func (ls LayerSet) SumScores(throws []Throw) (map[Chunk]int, int) {
@@ -68,7 +50,7 @@ func (ls LayerSet) SumScores(throws []Throw) (map[Chunk]int, int) {
 	reject := make(map[Chunk]bool)
 	count := make(map[Chunk]int)
 
-	highest := 0
+	layers := ls.Layers()
 	for _, t := range throws {
 		chunks := ChunksInThrow(t)
 		for _, c := range chunks {
@@ -76,9 +58,23 @@ func (ls LayerSet) SumScores(throws []Throw) (map[Chunk]int, int) {
 		}
 	}
 	for c := range count {
+		out := c == DEBUG_CHUNK
+		if reject[c] {
+			if out {
+				log.Println("sumscore: goal already rejected")
+			}
+			continue
+		}
 		score := 0
-		for _, l := range ls.Layers() {
-			s := l(throws, c)
+		for n, l := range layers {
+			s := l(throws, c) * ls.Weights[n]
+			if s < 0 {
+				log.Println("sumscore: goal score", s, "for layer", n, "weight", ls.Weights[n])
+				panic("negative score")
+			}
+			if out {
+				log.Println("sumscore: goal score", s, "for layer", n)
+			}
 			if s == 0 {
 				score = 0
 				break
@@ -87,35 +83,38 @@ func (ls LayerSet) SumScores(throws []Throw) (map[Chunk]int, int) {
 		}
 		if score == 0 {
 			reject[c] = true
+			if _, f := scores[c]; f {
+				delete(scores, c)
+			}
+			if out {
+				log.Println("sumscore: goal sum rejected")
+			}
 			continue
 		}
 		scores[c] += score
+		if out {
+			log.Println("sumscore: goal earned", score)
+		}
+	}
+	highest := 0
+	total := 0
+	for c := range count {
+		total += scores[c]
 		if scores[c] > highest {
 			highest = scores[c]
 		}
 	}
-	// clear all totally rejected chunk scores
-	rejects := 0
-	total := 0
-	for c, score := range scores {
-		if reject[c] || count[c] < len(throws) || score < highest*8/10 {
-			rejects++
-			delete(scores, c)
-			continue
-		}
-		total += score
-	}
 
 	if DEBUG {
-		log.Println("summed scores, matched", len(scores), "rejected", rejects, "highscore", highest)
+		log.Println("summed scores, total", len(count), "matched", len(scores), "rejected", len(reject), "highscore", highest)
 	}
 	return scores, total
 }
 
 func (ls LayerSet) Mutate() LayerSet {
-	factor := 0.20
+	factor := 0.50
 	eff := (rand.Float64() - .5) * 2 * factor
-	switch rand.Intn(4) {
+	switch rand.Intn(5) {
 	case 0:
 		ls.AnglePref *= 1 + eff
 	case 1:
@@ -124,6 +123,8 @@ func (ls LayerSet) Mutate() LayerSet {
 		ls.RingMod *= 1 + eff
 	case 3:
 		ls.MathFactor *= 1 + eff
+	case 4:
+		ls.ClusterWeight *= 1 + eff
 	}
 	return ls
 }
@@ -142,34 +143,44 @@ func (ls LayerSet) Ring(t []Throw, c Chunk) int {
 	preferred := minDist + (maxDist-minDist)*ls.AverageDistance
 	ring := cDist - preferred
 	if ring < ls.RingMod {
-		return 3
+		return 4
 	}
 	if ring < ls.RingMod*2 {
+		return 3
+	}
+	if ring < ls.RingMod*3 {
 		return 2
 	}
 	return 1
 }
 
 func (ls LayerSet) Angle(ts []Throw, c Chunk) int {
-	total := 0
+	total := 1
 	for _, t := range ts {
 		delta := math.Abs(c.Angle(t.A, t.X, t.Y))
 		if delta > radsFromDegs(.7) {
+			if c == DEBUG_CHUNK {
+				log.Println("ls.angle: discarded", delta)
+			}
 			return 0
 		}
 		if delta < ls.AnglePref {
-			total += 4
+			total++
 		}
 		if delta < ls.AnglePref*2 {
-			total += 3
+			total++
 		}
 		if delta < ls.AnglePref*3 {
-			total += 2
+			total++
 		}
-		total += 1
 	}
-	return total
+	if c == DEBUG_CHUNK {
+		log.Println("ls.angle:", total)
+	}
+	return total / len(ts)
 }
+
+const CROSSANGLE_EXPERIMENT = true
 
 func (ls LayerSet) CrossAngle(ts []Throw, c Chunk) int {
 	if len(ts) <= 1 {
@@ -184,63 +195,72 @@ func (ls LayerSet) CrossAngle(ts []Throw, c Chunk) int {
 	}
 	score := 1
 
+	tx, ty := 0.0, 0.0
+	count := 0
 	for n, t := range ts[:len(ts)-1] {
 		for _, ot := range ts[n+1:] {
 			k := ((ot.Y-t.Y)*math.Sin(ot.A) + (ot.X-t.X)*math.Cos(ot.A)) / math.Sin(ot.A-t.A)
 			ny := t.Y + k*math.Cos(t.A)
 			nx := t.X - k*math.Sin(t.A)
 
+			tx += nx
+			ty += ny
+			count++
+
 			distFromPerfect := c.Dist(nx, ny)
 
 			if distFromPerfect < ls.MathFactor {
-				score += 4
+				score++
 			}
 			if distFromPerfect < ls.MathFactor*5 {
-				score += 3
+				score++
 			}
 			if distFromPerfect < ls.MathFactor*12 {
-				score += 2
+				score++
 			}
 			if distFromPerfect < ls.MathFactor*25 {
-				score += 1
+				score++
 			}
 
 			if !printout {
 				continue
 			}
 
-			if printout {
-				log.Printf("chunk %s crossangle %.1f %.1f dist %.1f", c, nx, ny, distFromPerfect)
-				log.Println("throws", ts)
-				log.Println("debug chunk", DEBUG_CHUNK)
-			}
+			log.Printf("crossangle: %s crossangle %.1f %.1f dist %.1f", c, nx, ny, distFromPerfect)
 		}
 	}
+	tx /= float64(count)
+	ty /= float64(count)
 
-	return score
+	distFromPerfect := c.Dist(tx, ty)
+
+	if printout {
+		log.Printf("crossangle: goal %s crossangle %.1f %.1f dist %.1f", c, tx, ty, distFromPerfect)
+	}
+
+	if CROSSANGLE_EXPERIMENT {
+		if distFromPerfect < ls.MathFactor {
+			return 4
+		}
+		if distFromPerfect < ls.MathFactor*5 {
+			return 3
+		}
+		if distFromPerfect < ls.MathFactor*12 {
+			return 2
+		}
+		if distFromPerfect < ls.MathFactor*25 {
+			return 1
+		}
+		return 0
+	}
+
+	return score / (len(ts) + 1)
 }
 
 func dist(x, y, x2, y2 float64) float64 {
 	dx := x - x2
 	dy := y - y2
 	return math.Sqrt(dx*dx + dy*dy)
-}
-
-func (c Chunk) Dist(x, y float64) float64 {
-	cx, cy := c.Center()
-	return dist(float64(cx), float64(cy), x, y)
-}
-
-func (c Chunk) Angle(a, sx, sy float64) float64 {
-	x, y := c.Center()
-	atan := math.Atan2(sx-float64(x), float64(y)-sy) + math.Pi*2
-	atan = math.Mod(atan, math.Pi*2)
-	diff := wrapRads(a - atan)
-	return diff
-}
-
-func (c Chunk) Center() (int, int) {
-	return c[0]*16 + 8, c[1]*16 + 8
 }
 
 func radsFromDegs(degs float64) float64 {
@@ -261,9 +281,12 @@ func ChunksInThrow(t Throw) ChunkList {
 	angle := t.A
 	cx, cy := t.X, t.Y
 	dx, dy := -math.Sin(angle), math.Cos(angle)
+	lastDist := dist(0, 0, cx, cy)
 
 	chunks := make(ChunkList, 0)
 	chunksFound := map[Chunk]bool{}
+
+	scanIters := 0
 	for {
 		blockX := int(math.Floor(cx))
 		blockY := int(math.Floor(cy))
@@ -271,9 +294,12 @@ func ChunksInThrow(t Throw) ChunkList {
 		centerX := modLikePython(blockX, 16)
 		centerY := modLikePython(blockY, 16)
 
-		for xo := -1; xo < 1; xo++ {
-			for yo := -1; yo < 1; yo++ {
+		for xo := -1; xo <= 1; xo++ {
+			for yo := -1; yo <= 1; yo++ {
 				chunk := Chunk{(blockX-centerX)/16 + xo, (blockY-centerY)/16 + yo}
+				if RingID(chunk) == -1 {
+					continue
+				}
 				if _, found := chunksFound[chunk]; !found {
 					chunksFound[chunk] = true
 					chunks = append(chunks, chunk)
@@ -281,14 +307,51 @@ func ChunksInThrow(t Throw) ChunkList {
 			}
 		}
 
-		lastDist := dist(0, 0, cx, cy)
-		cx += dx * 2
-		cy += dy * 2
+		nextX := (blockX/16)*16 - 16
+		if dx > 0 {
+			nextX += 32
+		}
+		nextY := (blockY/16)*16 - 16
+		if dy > 0 {
+			nextY += 32
+		}
+		distX, distY := math.Inf(1), math.Inf(1)
+		if dx != 0 {
+			distX = (float64(nextX) - cx) / dx
+		}
+		if dy != 0 {
+			distY = (float64(nextY) - cy) / dy
+		}
+		useX := math.Abs(distX) < math.Abs(distY)
+		if distX == 0 {
+			useX = false
+		}
+		if distY == 0 {
+			useX = true
+		}
+		if useX {
+			cx += dx * distX
+			cy += dy * distX
+		} else {
+			cx += dx * distY
+			cy += dy * distY
+		}
+
+		// break
+
 		newDist := dist(0, 0, cx, cy)
 		if newDist > lastDist && newDist > float64(rings[len(rings)-1][1]+240) {
 			break
 		}
+		scanIters++
+		if scanIters > 10000 {
+			log.Println(blockX, blockY, nextX, nextY, distX, distY)
+		}
+		if scanIters > 10050 {
+			panic("overscanning")
+		}
 	}
+	// log.Println("scan iterations:", scanIters)
 	return chunks
 }
 

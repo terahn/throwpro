@@ -5,6 +5,7 @@ import (
 	"log"
 	"math"
 	"sort"
+	"time"
 
 	dbscan "github.com/866/go-dbscan"
 	"github.com/muesli/clusters"
@@ -15,36 +16,37 @@ var DEBUG = false
 
 var DEBUG_CHUNK Chunk
 
-const CHUNK_GROUP = 2000
-
 var ZeroEyeSet = LayerSet{
 	Code: "blind",
-	Name: "Blind Travel",
 
-	AnglePref:       radsFromDegs(0.22),
-	RingMod:         107,
-	AverageDistance: 0.4,
-	MathFactor:      54,
+	AnglePref:       radsFromDegs(0.01),
+	RingMod:         31,
+	AverageDistance: 0.05,
+	MathFactor:      62,
+	Weights:         [3]int{100, 100, 100},
+	ClusterWeight:   77,
 }
 
 var OneEyeSet = LayerSet{
 	Code: "educated",
-	Name: "Educated Travel",
 
-	AnglePref:       radsFromDegs(0.17),
-	RingMod:         107,
-	AverageDistance: 0.51,
-	MathFactor:      47,
+	AnglePref:       radsFromDegs(0.04),
+	RingMod:         110,
+	AverageDistance: 0.53,
+	MathFactor:      114,
+	Weights:         [3]int{100, 100, 100},
+	ClusterWeight:   175,
 }
 
 var TwoEyeSet = LayerSet{
 	Code: "triangulation",
-	Name: "Gradual Triangulation",
 
 	AnglePref:       radsFromDegs(0.09),
-	RingMod:         100,
-	AverageDistance: 0.27,
-	MathFactor:      40,
+	RingMod:         185,
+	AverageDistance: 0.25,
+	MathFactor:      35,
+	Weights:         [3]int{100, 100, 100},
+	ClusterWeight:   270,
 }
 
 type ChunkList []Chunk
@@ -52,9 +54,36 @@ type ChunkList []Chunk
 type Chunk [2]int
 
 func (t Chunk) ChunkDist(other Chunk) float64 {
-	ax, ay := t.Center()
 	bx, by := other.Center()
-	return dist(float64(ax), float64(ay), float64(bx), float64(by))
+	return t.Dist(float64(bx), float64(by))
+}
+
+func (t Chunk) Dist(x, y float64) float64 {
+	ax, ay := t.Center()
+	return dist(float64(ax), float64(ay), x, y)
+}
+
+func (c Chunk) Staircase() (int, int) {
+	x, y := c.Center()
+	return x - 4, y - 4
+}
+
+func (c Chunk) String() string {
+	x, y := c.Center()
+	ring := RingID(c)
+	return fmt.Sprintf("chunk %d,%d \t(center %d, %d, ring %d)", c[0], c[1], x, y, ring)
+}
+
+func (c Chunk) Angle(a, sx, sy float64) float64 {
+	x, y := c.Center()
+	atan := math.Atan2(sx-float64(x), float64(y)-sy) + math.Pi*2
+	atan = math.Mod(atan, math.Pi*2)
+	diff := wrapRads(a - atan)
+	return diff
+}
+
+func (c Chunk) Center() (int, int) {
+	return c[0]*16 + 8, c[1]*16 + 8
 }
 
 type ThrowType int
@@ -97,6 +126,33 @@ func (t Throw) Similar(other Throw) bool {
 	return false
 }
 
+type Guess struct {
+	Chunk      [2]int `json:"chunk"`
+	Method     string `json:"method"`
+	Confidence int    `json:"confidence"`
+}
+
+func (g Guess) String() string {
+	return fmt.Sprintf(`%s %d %s `, g.Method, g.Confidence, Chunk(g.Chunk))
+}
+
+type ScoredChunk struct {
+	Chunk
+	Score int
+}
+
+func (c ScoredChunk) Distance(other interface{}) float64 {
+	o := other.(ScoredChunk)
+	dx := (c.Chunk[0] - o.Chunk[0])
+	dy := (c.Chunk[1] - o.Chunk[1])
+	dc := (c.Score - o.Score)
+	return math.Sqrt(float64(dx*dx + dy*dy + dc*dc))
+}
+
+func (c ScoredChunk) GetID() string {
+	return fmt.Sprintf(`%d,%d`, c.Chunk[0], c.Chunk[1])
+}
+
 type Session struct {
 	Throws      []Throw
 	CustomLayer *LayerSet
@@ -135,12 +191,6 @@ func (s *Session) ByScore() []Chunk {
 	return chunks
 }
 
-func (s *Session) NewThrow(t Throw) *Session {
-	s.Throws = append(s.Throws, t)
-	s.Scores, s.TotalScore = s.Layers().SumScores(s.Throws)
-	return s
-}
-
 func (s *Session) CalcLayerSet() LayerSet {
 	if s.CustomLayer != nil {
 		return *s.CustomLayer
@@ -165,11 +215,26 @@ func (s *Session) Layers() LayerSet {
 	return appropriate
 }
 
-func (s *Session) BestGuess() (Chunk, int) {
+func (s *Session) BestGuess(ts ...Throw) Guess {
+	if len(ts) == 0 {
+		panic("no throws")
+	}
+	t1 := time.Now() // evaluation
+
+	s.Throws = ts
+	s.Scores, s.TotalScore = s.Layers().SumScores(s.Throws)
+
 	if len(s.Scores) == 0 {
-		return Chunk{}, 1000
+		return Guess{Method: "reset"}
+	}
+	if s.TotalScore == 0 {
+		panic("no score")
+	}
+	if s.TotalScore < 0 {
+		panic("negative score")
 	}
 
+	t2 := time.Now() // clustering
 	chunks := s.Chunks()
 	averageScore := s.TotalScore / len(chunks)
 	pts := make([]dbscan.Clusterable, 0, len(chunks))
@@ -179,48 +244,56 @@ func (s *Session) BestGuess() (Chunk, int) {
 			// continue
 		}
 		counted++
-		pts = append(pts, c)
+		score := s.Scores[c]
+		pts = append(pts, ScoredChunk{c, score})
 	}
 	// log.Println("observing", counted, "/", len(chunks), "above average", averageScore)
-	clustered := dbscan.Clusterize(pts, 1, CHUNK_GROUP)
+	clustered := dbscan.Clusterize(pts, 1, s.LayerSet.ClusterWeight)
 	clusterGroups := make(map[int]clusters.Cluster)
 	allowOutliers := true
+	maxScore := 0
 	for id, c := range clustered {
 		group := clusters.Cluster{}
 		group.Center = []float64{0, 0}
 
 		totalScore := 0
-		for _, point := range c {
-			chunk := point.(Chunk)
+		avgRing := 0
 
-			score := s.Scores[chunk]
+		for _, point := range c {
+			scored := point.(ScoredChunk)
+			score := scored.Score
+			chunk := scored.Chunk
+
 			x, y := chunk.Center()
 			group.Center[0] += float64(x * score)
 			group.Center[1] += float64(y * score)
 			totalScore += score
-
+			if score > maxScore {
+				maxScore = score
+			}
+			avgRing += RingID(chunk)
 			kobs := clusters.Coordinates([]float64{float64(x), float64(y)})
 			group.Observations = append(group.Observations, kobs)
 		}
 		group.Center[0] /= float64(totalScore)
 		group.Center[1] /= float64(totalScore)
+		avgRing /= len(c)
 
 		clusterGroups[id] = group
 		if len(c) > 1 {
 			allowOutliers = false
 		}
 		if DEBUG {
-			log.Println("cluster", id, "size", len(c))
+			log.Println("cluster", id, "size", len(c), "ringavg", avgRing, "center", group.Center)
 		}
 	}
 
+	t3 := time.Now() // choosing cluster
+
 	display := make(clusters.Clusters, 0, len(clusterGroups))
-	for id, c := range clusterGroups {
+	for _, c := range clusterGroups {
 		if len(c.Observations) == 1 && !allowOutliers {
 			continue
-		}
-		if DEBUG {
-			log.Println("cluster", id, "size", len(c.Observations), "center", c.Center)
 		}
 		display = append(display, c)
 	}
@@ -232,13 +305,13 @@ func (s *Session) BestGuess() (Chunk, int) {
 		panic(fmt.Sprintf(`%t, %#v = %#v`, allowOutliers, display, clusterGroups))
 	}
 
+	// pick cluster closest to player
 	t := s.Throws[len(s.Throws)-1]
-	throwCoords := clusters.Coordinates{t.X, t.Y}
 	leastFar := display[0]
-	leastFound := leastFar.Center.Distance(throwCoords)
+	leastFound := dist(leastFar.Center[0], leastFar.Center[1], t.X, t.Y)
 	if len(display) > 1 {
 		for _, c := range display[1:] {
-			dist := c.Center.Distance(throwCoords)
+			dist := dist(c.Center[0], c.Center[1], t.X, t.Y)
 			if dist < leastFound {
 				leastFound = dist
 				leastFar = c
@@ -248,18 +321,26 @@ func (s *Session) BestGuess() (Chunk, int) {
 
 	if DEBUG {
 		kmeans.SimplePlotter{}.Plot(display, 0)
-		log.Println("closest cluster", leastFar.Center, leastFound)
+		log.Println("plotting closest cluster", leastFar.Center, leastFound)
 	}
 
+	t4 := time.Now() // choosing chunk
 	sx, sy := leastFar.Center[0], leastFar.Center[1]
-	average := ChunkFromPosition(sx, sy)
+	highest := chunks[0]
+	highestScore := 0
+
 	closest := chunks[0]
-	closestDistance := average.ChunkDist(closest)
+	closestDistance := closest.Dist(sx, sy) / float64(s.Scores[closest])
 	for _, c := range chunks {
-		dist := average.ChunkDist(c)
+		dist := c.Dist(sx, sy) / float64(s.Scores[c])
 		if dist < closestDistance {
 			closest = c
 			closestDistance = dist
+		}
+		score := s.Scores[c]
+		if score > highestScore {
+			highestScore = score
+			highest = c
 		}
 	}
 
@@ -273,9 +354,18 @@ func (s *Session) BestGuess() (Chunk, int) {
 		for _, chunk := range s.ByScore()[:l] {
 			log.Println("chunk", chunk, "score", s.Scores[chunk])
 		}
+
+		log.Println("highest score chunk", highest, "/", maxScore)
 	}
 
-	return closest, s.Scores[closest] * 1000 / (s.TotalScore + 2)
+	if DEBUG {
+		log.Printf(`scoring:%s clustering:%s rendering:%s choosing:%s`, t2.Sub(t1), t3.Sub(t2), t4.Sub(t3), time.Since(t4))
+	}
+	return Guess{
+		Chunk:      closest,
+		Confidence: s.Scores[closest] * 1000 / (s.TotalScore + 2),
+		Method:     s.Layers().Code,
+	}
 }
 
 func GetBlindGuess(t Throw) Chunk {

@@ -18,10 +18,17 @@ import (
 	"github.com/dantoye/throwpro/throwlib"
 )
 
-func main() {
-	MonitorForever()
+var FORMATS = map[string]string{
+	"blind":         `{nether} nether to go {distance} blocks {line}({coords} overworld)`,
+	"educated":      `{nether} nether to go {distance} blocks {line}({coords} overworld)`,
+	"triangulation": `{coords} is {confidence} likely {line}({distance} away, {nether} nether)`,
 }
 
+var METHODS = map[string]string{
+	"blind":         `Blind Guess`,
+	"educated":      `Educated Travel`,
+	"triangulation": `Gradual Triangulation`,
+}
 var name = lns(`ThrowPro Minecraft Assistant`, `Version 0.4`)
 
 type Monitor struct {
@@ -31,18 +38,15 @@ type Monitor struct {
 	clipTicker *time.Ticker
 
 	*Display
-	*File
+	*FileWriter
 }
 
-func MonitorForever() {
+func StartClipboardMonitor(d *Display, sm *throwlib.SessionManager) {
 	m := Monitor{timeout: time.Minute * 9}
 	m.clipTicker = time.NewTicker(50 * time.Millisecond)
-	m.sm = throwlib.NewSessionManager()
-	m.Display = NewDisplay(m.sm)
-	m.File = NewFile(m.Display)
-
+	m.Display = d
+	m.sm = sm
 	go m.Block()
-	m.display.Block()
 }
 
 func (m *Monitor) Block() {
@@ -71,7 +75,6 @@ func (m *Monitor) Block() {
 		}
 		m.sm.NewThrow(throw)
 		m.Display.Refresh()
-		m.File.Refresh()
 		m.ExtendTimer()
 	}
 }
@@ -83,51 +86,66 @@ func (m *Monitor) ExtendTimer() {
 	m.timer = time.AfterFunc(m.timeout, func() { m.Reset() })
 }
 
-type File struct {
-	file    *os.File
-	display *Display
+type FileWriter struct {
+	file  *os.File
+	path  string
+	wpath string
 }
 
-func NewFile(d *Display) *File {
-	file := new(File)
+func NewFileWriter() *FileWriter {
+	file := new(FileWriter)
 	dir, err := os.UserHomeDir()
 	if err != nil {
 		log.Println("error", err.Error())
 		return nil
 	}
 
-	path := filepath.FromSlash(dir + "/.throwlib.txt")
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		log.Println("error", err.Error())
-		f = nil
-	}
-	file.file = f
-	file.display = d
+	file.path = filepath.FromSlash(dir + "/throwlib.txt")
+	file.wpath = filepath.FromSlash(dir + "/.throwlib.txt")
+	log.Println("writing to", file.wpath)
 	return file
 }
 
-func (f *File) Refresh() {
-	if f == nil {
+func (f *FileWriter) WriteScratch(status string) {
+	file, err := os.OpenFile(f.wpath, os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		log.Println("error", err.Error())
 		return
 	}
-	f.file.Truncate(0)
-	f.file.Seek(0, 0)
-	status := f.display.top.Text
-	if _, err := f.file.WriteString(status); err != nil {
+
+	file.Truncate(0)
+	file.Seek(0, 0)
+	if _, err := file.WriteString(status); err != nil {
 		log.Println("error writing file", err.Error())
 	}
+	file.Sync()
+}
+
+func (f *FileWriter) Write(status string) {
+	if f.file == nil {
+		return
+	}
+
+	f.WriteScratch(status)
+	if err := os.Rename(f.wpath, f.path); err != nil {
+		log.Println("error swapping file", err.Error())
+	}
+	f.WriteScratch(status)
 }
 
 type Display struct {
 	top    *widget.Label
 	bottom *widget.Label
 	window fyne.Window
-	sm     *throwlib.SessionManager
+
+	sm *throwlib.SessionManager
+	f  *FileWriter
 }
 
-func NewDisplay(sm *throwlib.SessionManager) *Display {
+func NewDisplay(sm *throwlib.SessionManager, f *FileWriter) *Display {
 	d := new(Display)
+	d.sm = sm
+	d.f = f
 
 	log.Println("creating UI")
 	a := app.New()
@@ -150,6 +168,7 @@ func NewDisplay(sm *throwlib.SessionManager) *Display {
 
 	infoUI := widget.NewLabel("Info")
 	debugUI := widget.NewLabel("Debug")
+	debugUI.SetText(lns("Writing results to", f.path))
 
 	var toggle func()
 	showButton := widget.NewButton("Show Secret Details", func() { toggle() })
@@ -195,15 +214,13 @@ func (d *Display) Stop() {
 }
 
 func (d *Display) Refresh() {
-	sm := d.sm
-	throw := sm.ActiveSession.Throws[len(sm.ActiveSession.Throws)-1]
-	guess := sm.Guess
-	conf := sm.Confidence
+	guess := d.sm.Guess
+	throw := d.sm.Throws[len(d.sm.Throws)-1]
+	chunk := throwlib.Chunk(guess.Chunk)
+	conf := guess.Confidence
 
-	log.Println("current layer set", sm.ActiveSession.LayerSet)
-
-	x, y := guess.Staircase()
-	distPlayer := guess.Dist(throw.X, throw.Y)
+	x, y := chunk.Staircase()
+	distPlayer := chunk.Dist(throw.X, throw.Y)
 
 	distStr := fmt.Sprintf(`%.1fk`, distPlayer/1000)
 	confStr := fmt.Sprintf(`%.1f%%`, float64(conf)/10)
@@ -217,12 +234,13 @@ func (d *Display) Refresh() {
 		`{nether}`, nether,
 		`{line}`, "\n\r",
 	)
-	status := replacer.Replace(FORMATS[sm.ActiveSession.LayerSet.Code])
-	mode := "Mode: " + sm.ActiveSession.LayerSet.Name
+	status := replacer.Replace(FORMATS[guess.Method])
+	mode := "Mode: " + METHODS[guess.Method]
 
 	log.Println("updating ui...", status, mode)
 	d.top.SetText(status)
 	d.bottom.SetText(mode)
+	d.f.Write(status)
 }
 
 func (d *Display) Reset() {
@@ -234,8 +252,11 @@ func lns(ss ...string) string {
 	return strings.Join(ss, "\r\n")
 }
 
-var FORMATS = map[string]string{
-	"blind":         `{nether} nether to go {distance} blocks {line} ({coords} overworld)`,
-	"educated":      `{nether} nether to go {distance} blocks {line} ({coords} overworld)`,
-	"triangulation": `{coords} is {confidence} likely {line} ({distance} away, {nether} nether)`,
+func main() {
+	sm := throwlib.NewSessionManager()
+	file := NewFileWriter()
+	display := NewDisplay(sm, file)
+
+	StartClipboardMonitor(display, sm)
+	display.Block()
 }

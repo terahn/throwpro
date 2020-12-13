@@ -28,7 +28,7 @@ func TestParsing(t *testing.T) {
 func TestBlind(t *testing.T) {
 	throw, _ := NewThrowFromString(`/execute in minecraft:overworld run tp @s -146.06 131.53 457.92 668.39 -10.35`)
 	DEBUG = true
-	guess, _ := NewSession().NewThrow(throw).BestGuess()
-	x, y := guess.Center()
+	guess := NewSession().BestGuess(throw)
+	x, y := Chunk(guess.Chunk).Center()
 	t.Logf("%#v blind to %d %d", throw, x, y)
 }

@@ -6,51 +6,44 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 )
+
+type Backend interface {
+	BestGuess(...Throw) Guess
+}
 
 type SessionManager struct {
 	lock sync.RWMutex
 
-	Duration      time.Duration
-	ActiveSession *Session
+	Backend
 
-	Guess      Chunk
-	Confidence int
+	Throws []Throw
+	Guess  Guess
 }
 
 func NewSessionManager() *SessionManager {
-	sm := &SessionManager{}
-	sm.Reset()
+	sm := &SessionManager{Backend: NewSession()}
 	return sm
-}
-
-func (sm *SessionManager) Reset() {
-	sm.lock.Lock()
-	defer sm.lock.Unlock()
-	sm.ActiveSession = NewSession()
 }
 
 func (sm *SessionManager) NewThrow(throw Throw) {
 	sm.lock.Lock()
 	defer sm.lock.Unlock()
 
-	for _, t := range sm.ActiveSession.Throws {
+	for _, t := range sm.Throws {
 		if throw.Similar(t) {
 			return
 		}
 	}
 
-	guess, conf := sm.ActiveSession.NewThrow(throw).BestGuess()
-	if len(sm.ActiveSession.Scores) > 0 {
-		log.Println("consumed throw", throw, "for", len(sm.ActiveSession.Scores), "matches")
-	} else {
-		sm.ActiveSession = NewSession()
-		guess, conf = sm.ActiveSession.NewThrow(throw).BestGuess()
-		log.Println("new session for throw", throw, "found", len(sm.ActiveSession.Scores), "chunks")
+	sm.Throws = append(sm.Throws, throw)
+	guess := sm.Backend.BestGuess(sm.Throws...)
+	if guess.Method == "reset" {
+		sm.Throws = []Throw{throw}
+		guess = sm.Backend.BestGuess(sm.Throws...)
+		log.Println("new session for throw", throw)
 	}
 	sm.Guess = guess
-	sm.Confidence = conf
 }
 
 // /execute in minecraft:overworld run tp @s -214.79 104.61 386.16 76.50 -32.40

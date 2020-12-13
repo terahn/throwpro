@@ -2,6 +2,7 @@ package throwlib
 
 import (
 	"log"
+	"math"
 	"strconv"
 	"strings"
 	"testing"
@@ -11,6 +12,8 @@ type progressionTest struct {
 	throws []Throw
 	goal   Chunk
 }
+
+const TUNE_COUNT = 100
 
 var progressionTests = append([]progressionTest{
 	{
@@ -36,27 +39,26 @@ var progressionTests = append([]progressionTest{
 func TestTriangulationAccuracy(t *testing.T) {
 	distances := []int{0, 0, 0, 0}
 	totals := []int{0, 0, 0, 0}
-	for _, test := range progressionTests {
+	for n, test := range progressionTests {
 		DEBUG_CHUNK = test.goal
 		sess := NewSession()
 		throws := test.throws
 		if len(throws) > 3 {
 			throws = throws[:3]
 		}
-		for num, throw := range throws {
-			sess.NewThrow(throw)
-			bestGuess, _ := sess.BestGuess()
+		for num := range throws {
+			bestGuess := Chunk(sess.BestGuess(throws[:num+1]...).Chunk)
 			chunkDist := int(bestGuess.ChunkDist(test.goal))
 
 			if chunkDist > 10000 {
-				t.Logf("bad test result %#v, guessed %s", test, bestGuess)
+				t.Logf("bad test %d result %#v, guessed %s", n, test, bestGuess)
 			}
 			distances[num+1] += chunkDist
 			totals[num+1]++
 		}
+
 		throw := NewBlindThrow(throws[0].X, throws[0].Y)
-		sess.NewThrow(throw)
-		bestGuess, _ := sess.BestGuess()
+		bestGuess := Chunk(sess.BestGuess(throw).Chunk)
 		chunkDist := int(bestGuess.ChunkDist(test.goal))
 
 		if chunkDist > 10000 {
@@ -71,8 +73,6 @@ func TestTriangulationAccuracy(t *testing.T) {
 		t.Logf("average throw %d accuracy for %d samples: %d blocks", throw, totals[throw], score)
 	}
 }
-
-const TUNE_COUNT = 2000
 
 func TestTuneZeroConfigs(t *testing.T) {
 	ls := ZeroEyeSet
@@ -122,22 +122,25 @@ func TestTuneTwoConfigs(t *testing.T) {
 	}
 }
 
-func AverageAccuracy(ls LayerSet, throws int) (float64, int) {
+func AverageAccuracy(ls LayerSet, total int) (float64, int) {
 	distances := 0.0
 	totals := 0.0
 	for _, test := range progressionTests {
-		DEBUG_CHUNK = test.goal
+		// DEBUG_CHUNK = test.goal
 		sess := NewSession(ls)
-		if len(test.throws) < throws {
+		throws := test.throws
+		if len(throws) < total {
 			continue
 		}
-		if throws == 0 {
-			sess.NewThrow(NewBlindThrow(test.throws[0].X, test.throws[0].Y))
+		var bestGuess Chunk
+		if total == 0 {
+			bestGuess = Chunk(sess.BestGuess(NewBlindThrow(throws[0].X, throws[0].Y)).Chunk)
+		} else {
+			if len(throws) > total {
+				throws = throws[:total]
+			}
+			bestGuess = Chunk(sess.BestGuess(throws...).Chunk)
 		}
-		for _, throw := range test.throws[:throws] {
-			sess.NewThrow(throw)
-		}
-		bestGuess, _ := sess.BestGuess()
 		distances += bestGuess.ChunkDist(test.goal)
 		totals++
 	}
@@ -153,8 +156,7 @@ func TestEducatedAccuracy(t *testing.T) {
 		goal := test.goal
 
 		sess := NewSession()
-		sess.NewThrow(throw)
-		guess, _ := sess.BestGuess()
+		guess := Chunk(sess.BestGuess(throw).Chunk)
 		chunkDist := int(guess.ChunkDist(goal))
 		distance += chunkDist / len(progressionTests)
 		t.Logf("goal %s, guess %s", goal, guess)
@@ -167,16 +169,10 @@ func TestDeterministic(t *testing.T) {
 		DEBUG_CHUNK = test.goal
 		throw := test.throws[0]
 
-		sess1 := NewSession()
-		sess1.NewThrow(throw)
-		guess1, c1 := sess1.BestGuess()
+		guess1 := NewSession().BestGuess(throw)
+		guess2 := NewSession().BestGuess(throw)
 
-		sess2 := NewSession()
-		sess2.NewThrow(throw)
-		guess2, c2 := sess2.BestGuess()
-
-		t.Log(guess1, c1, guess2, c2)
-		if guess1 != guess2 || c1 != c2 {
+		if guess1 != guess2 {
 			t.Errorf("mismatching guesses")
 		}
 	}
@@ -185,40 +181,29 @@ func TestDeterministic(t *testing.T) {
 func TestProgression(t *testing.T) {
 	test := progressionTests[1]
 	DEBUG_CHUNK = test.goal
-	// DEBUG = true
+	DEBUG = true
 	sess := NewSession()
-	runnerUp := Chunk{56, -75}
 
 	throw := NewBlindThrow(test.throws[0].X, test.throws[0].Y)
-	guess, _ := NewSession().NewThrow(throw).BestGuess()
+	guess := Chunk(sess.BestGuess(throw).Chunk)
 
 	t.Logf("current angle: %f", guess.Angle(throw.A, throw.X, throw.Y))
-	if guess == test.goal {
-		t.Logf("goal angle: %f", guess.Angle(throw.A, throw.X, throw.Y))
-	}
-	if guess == runnerUp {
-		t.Logf("runnerUp angle: %f", guess.Angle(throw.A, throw.X, throw.Y))
-	}
 	t.Logf("throw %d matched %d, educated guess: %s, goal: %s", 0, len(sess.Scores), guess, test.goal)
 
 	for n, throw := range test.throws {
-		sess.NewThrow(throw)
-		guess, _ := sess.BestGuess()
+		g := sess.BestGuess(test.throws[:n+1]...)
+		guess := Chunk(g.Chunk)
 
 		t.Logf("current angle: %f", guess.Angle(throw.A, throw.X, throw.Y))
-		if guess == test.goal {
-			t.Logf("goal angle: %f", guess.Angle(throw.A, throw.X, throw.Y))
-		}
-		if guess == runnerUp {
-			t.Logf("runnerUp angle: %f", guess.Angle(throw.A, throw.X, throw.Y))
-		}
-		t.Logf("throw %d matched %d, educated guess: %s, goal: %s", n+1, len(sess.Scores), guess, test.goal)
+		t.Logf("throw %d matchd %d, config %v", n+1, len(sess.Scores), throw)
+		t.Logf("throw %d educated guess: %s, goal: %s", n+1, g, test.goal)
 	}
 }
 
 func loadTestsFromString(s string) []progressionTest {
 	test := progressionTest{}
 	tests := make([]progressionTest, 0)
+	skips := 0
 	for _, str := range strings.Split(s, "\n") {
 		if strings.HasPrefix(str, "/execute") {
 			t, err := NewThrowFromString(str)
@@ -228,17 +213,41 @@ func loadTestsFromString(s string) []progressionTest {
 			test.throws = append(test.throws, t)
 		}
 		if strings.HasPrefix(str, "/tp") {
+			new := test
+			test = progressionTest{}
+
 			parts := strings.Split(str, " ")
 			a, b := parts[2], parts[4]
 			x, _ := strconv.Atoi(a)
 			y, _ := strconv.Atoi(b)
-			test.goal = ChunkFromCenter(x, y)
-			if test.goal.Dist(0, 0) > 1400 && test.goal.Dist(0, 0) < 2500 {
-				tests = append(tests, test)
+			new.goal = ChunkFromCenter(x, y)
+
+			// filter out extremely bad throws
+			skip := false
+			for _, t := range new.throws {
+				if t.Type == Blind {
+					skip = true
+					log.Println("skipping blind throw", t, str)
+					continue
+				}
+				delta := math.Abs(new.goal.Angle(t.A, t.X, t.Y))
+				if delta > radsFromDegs(1) {
+					skip = true
+					log.Println("skipping bad throw", t, str)
+				}
 			}
-			test = progressionTest{}
+			if len(new.throws) == 0 {
+				log.Println("skipping no throws", str)
+				skip = true
+			}
+			if !skip {
+				tests = append(tests, new)
+			} else {
+				skips++
+			}
 		}
 	}
+	log.Println("skipped", skips, "bad samples")
 	return tests
 }
 
