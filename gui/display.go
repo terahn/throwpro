@@ -18,6 +18,8 @@ import (
 	"github.com/dantoye/throwpro/throwlib"
 )
 
+var name = lns(`ThrowPro Minecraft Assistant`, `Version 0.5`)
+
 var FORMATS = map[string]string{
 	"blind":         `{nether} nether to go {distance} blocks {line}({coords} overworld)`,
 	"educated":      `{nether} nether to go {distance} blocks {line}({coords} overworld)`,
@@ -29,7 +31,6 @@ var METHODS = map[string]string{
 	"educated":      `Educated Travel`,
 	"triangulation": `Gradual Triangulation`,
 }
-var name = lns(`ThrowPro Minecraft Assistant`, `Version 0.4`)
 
 type Monitor struct {
 	timer      *time.Timer

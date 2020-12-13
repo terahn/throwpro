@@ -33,7 +33,9 @@ func (sm *SessionManager) NewThrow(throw Throw) {
 	defer sm.lock.Unlock()
 
 	if throw.Type == Nether {
-		sm.Portal = &[2]int{int(throw.X / 8), int(throw.Y / 8)}
+		if sm.Portal == nil {
+			sm.Portal = &[2]int{int(throw.X / 8), int(throw.Y / 8)}
+		}
 		return
 	}
 
