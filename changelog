@@ -1,3 +1,9 @@
+v 0.5
+- added portal memory feature
+- help and debug info is expanded and moved to a new window
+- overall accuracy improvement via score-distance clustering
+- cleaned up code and prepared for open-source release
+
 v 0.4
 - added dbscan clustering support
 - all parameters are now machine learning provided
