@@ -20,6 +20,19 @@ import (
 
 var name = lns(`ThrowPro Minecraft Assistant`, `Version 0.5`)
 
+var BLURB = lns(
+	`Basic Instructions`,
+	`1. ADD data by throwing an ender eye, staring right at it, and pressing F3+C.`,
+	`2. ADD once to get an educated travel guess, twice to begin triangulation.`,
+	`Tip: The more you ADD, the more confident the guess can be.`,
+	``,
+	`Advanced Use Tips`,
+	`1. Predict inside nether to remember your portal.`,
+	`2. Don't look up at the sky if you want a blind guess.`,
+	``,
+	`For further help, message @Cudduw.`,
+)
+
 var FORMATS = map[string]string{
 	"blind":         `{nether} nether to go {distance} blocks {line}({coords} overworld)`,
 	"educated":      `{nether} nether to go {distance} blocks {line}({coords} overworld)`,
@@ -156,6 +169,16 @@ func NewDisplay(sm *throwlib.SessionManager, f *FileWriter) *Display {
 	w.Resize(fyne.NewSize(300, 50))
 	w.SetPadded(true)
 
+	help := a.NewWindow("ThrowPro Help")
+	help.SetPadded(true)
+	help.Hide()
+	help.SetCloseIntercept(func() {
+		help.Hide()
+	})
+	w.SetOnClosed(func() {
+		help.Close()
+	})
+
 	d.window = w
 
 	mainUI := widget.NewLabel("Status")
@@ -169,36 +192,23 @@ func NewDisplay(sm *throwlib.SessionManager, f *FileWriter) *Display {
 
 	infoUI := widget.NewLabel("Info")
 	debugUI := widget.NewLabel("Debug")
-	debugUI.SetText(lns("Writing results to", f.path))
+	debugUI.SetText("Writing results to " + f.path)
 
 	var toggle func()
-	showButton := widget.NewButton("Show Secret Details", func() { toggle() })
+	showButton := widget.NewButton("Open Help Window", func() { toggle() })
 
 	var iconData, _ = base64.StdEncoding.DecodeString(icon)
 	w.SetIcon(fyne.NewStaticResource("eye.png", iconData))
 
 	toggle = func() {
-		if infoUI.Hidden {
-			infoUI.Show()
-			debugUI.Show()
-			mainUI.Hide()
-			secondUI.Hide()
-			showButton.SetText("Hide Secret Details")
-			throwlib.DEBUG = true
-			return
-		}
-		infoUI.Hide()
-		debugUI.Hide()
-		mainUI.Show()
-		secondUI.Show()
-		showButton.SetText("Show Secret Details")
+		throwlib.DEBUG = true
+		help.Show()
+		return
 	}
-	infoUI.Hide()
-	debugUI.Hide()
 
-	w.SetContent(widget.NewVBox(mainUI, secondUI, infoUI, debugUI, showButton))
-
-	infoUI.SetText("For help, message @Cudduw")
+	w.SetContent(widget.NewVBox(mainUI, secondUI, showButton))
+	help.SetContent(widget.NewVBox(infoUI, debugUI))
+	infoUI.SetText(BLURB)
 	return d
 }
 
