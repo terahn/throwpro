@@ -18,6 +18,8 @@ type SessionManager struct {
 	Backend
 
 	Throws []Throw
+
+	Portal *[2]int
 	Guess  Guess
 }
 
@@ -30,6 +32,11 @@ func (sm *SessionManager) NewThrow(throw Throw) {
 	sm.lock.Lock()
 	defer sm.lock.Unlock()
 
+	if throw.Type == Nether {
+		sm.Portal = &[2]int{int(throw.X / 8), int(throw.Y / 8)}
+		return
+	}
+
 	for _, t := range sm.Throws {
 		if throw.Similar(t) {
 			return
@@ -40,6 +47,7 @@ func (sm *SessionManager) NewThrow(throw Throw) {
 	guess := sm.Backend.BestGuess(sm.Throws...)
 	if guess.Method == "reset" {
 		sm.Throws = []Throw{throw}
+		sm.Portal = nil
 		guess = sm.Backend.BestGuess(sm.Throws...)
 		log.Println("new session for throw", throw)
 	}
