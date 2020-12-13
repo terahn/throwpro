@@ -101,7 +101,6 @@ func (m *Monitor) ExtendTimer() {
 }
 
 type FileWriter struct {
-	file  *os.File
 	path  string
 	wpath string
 }
@@ -136,10 +135,6 @@ func (f *FileWriter) WriteScratch(status string) {
 }
 
 func (f *FileWriter) Write(status string) {
-	if f.file == nil {
-		return
-	}
-
 	f.WriteScratch(status)
 	if err := os.Rename(f.wpath, f.path); err != nil {
 		log.Println("error swapping file", err.Error())
