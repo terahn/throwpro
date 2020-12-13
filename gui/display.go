@@ -113,38 +113,42 @@ func NewFileWriter() *FileWriter {
 		return nil
 	}
 
-	file.path = filepath.FromSlash(dir + "/throwlib.txt")
-	file.wpath = filepath.FromSlash(dir + "/.throwlib.txt")
+	file.path = filepath.FromSlash(dir + "/throwpro.txt")
+	file.wpath = filepath.FromSlash(dir + "/.throwpro.txt")
 	log.Println("writing to", file.wpath)
 	return file
 }
 
-func (f *FileWriter) WriteScratch(status string) {
+func (f *FileWriter) WriteScratch(status string) error {
 	file, err := os.OpenFile(f.wpath, os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		log.Println("error", err.Error())
-		return
+		return err
 	}
 
 	file.Truncate(0)
 	file.Seek(0, 0)
 	if _, err := file.WriteString(status); err != nil {
 		log.Println("error writing file", err.Error())
+		return err
 	}
-	file.Sync()
+	return file.Sync()
 }
 
-func (f *FileWriter) Write(status string) {
+func (f *FileWriter) Write(status string) error {
 	f.WriteScratch(status)
 	if err := os.Rename(f.wpath, f.path); err != nil {
 		log.Println("error swapping file", err.Error())
+		return err
 	}
-	f.WriteScratch(status)
+	return f.WriteScratch(status)
 }
 
 type Display struct {
 	top    *widget.Label
 	bottom *widget.Label
+	debug  func(error)
+
 	window fyne.Window
 
 	sm *throwlib.SessionManager
@@ -188,6 +192,12 @@ func NewDisplay(sm *throwlib.SessionManager, f *FileWriter) *Display {
 	infoUI := widget.NewLabel("Info")
 	debugUI := widget.NewLabel("Debug")
 	debugUI.SetText("Writing results to " + f.path)
+	d.debug = func(e error) {
+		if e == nil {
+			return
+		}
+		debugUI.SetText("Error: " + e.Error())
+	}
 
 	var toggle func()
 	showButton := widget.NewButton("Open Help Window", func() { toggle() })
@@ -204,6 +214,8 @@ func NewDisplay(sm *throwlib.SessionManager, f *FileWriter) *Display {
 	w.SetContent(widget.NewVBox(mainUI, secondUI, showButton))
 	help.SetContent(widget.NewVBox(infoUI, debugUI))
 	infoUI.SetText(BLURB)
+
+	d.Refresh()
 	return d
 }
 
@@ -220,6 +232,10 @@ func (d *Display) Stop() {
 }
 
 func (d *Display) Refresh() {
+	if len(d.sm.Throws) == 0 {
+		d.Reset()
+		return
+	}
 	guess := d.sm.Guess
 	throw := d.sm.Throws[len(d.sm.Throws)-1]
 	chunk := throwlib.Chunk(guess.Chunk)
@@ -238,7 +254,7 @@ func (d *Display) Refresh() {
 		`{confidence}`, confStr,
 		`{coords}`, coords,
 		`{nether}`, nether,
-		`{line}`, "\n\r",
+		`{line}`, "\n",
 	)
 	status := replacer.Replace(FORMATS[guess.Method])
 	mode := "Mode: " + METHODS[guess.Method]
@@ -249,11 +265,12 @@ func (d *Display) Refresh() {
 	log.Println("updating ui...", status, mode)
 	d.top.SetText(status)
 	d.bottom.SetText(mode)
-	d.f.Write(status)
+	d.debug(d.f.Write(status))
 }
 
 func (d *Display) Reset() {
 	d.top.SetText(name)
+	d.sm.Throws = nil
 	d.bottom.SetText("Look at ender eye and press F3+C.")
 }
 
