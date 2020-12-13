@@ -1,10 +1,10 @@
-package throwpro
+package throwlib
 
 import (
 	"fmt"
 	"log"
+	"math"
 	"sort"
-	"strings"
 
 	dbscan "github.com/866/go-dbscan"
 	"github.com/muesli/clusters"
@@ -17,22 +17,34 @@ var DEBUG_CHUNK Chunk
 
 const CHUNK_GROUP = 2000
 
-func OneEyeSet() LayerSet {
-	return LayerSet{
-		AnglePref:       radsFromDegs(0.17),
-		RingMod:         107,
-		AverageDistance: 0.51,
-		MathFactor:      47,
-	}
+var ZeroEyeSet = LayerSet{
+	Code: "blind",
+	Name: "Blind Travel",
+
+	AnglePref:       radsFromDegs(0.22),
+	RingMod:         107,
+	AverageDistance: 0.4,
+	MathFactor:      54,
 }
 
-func TwoEyeSet() LayerSet {
-	return LayerSet{
-		AnglePref:       radsFromDegs(0.09),
-		RingMod:         100,
-		AverageDistance: 0.27,
-		MathFactor:      40,
-	}
+var OneEyeSet = LayerSet{
+	Code: "educated",
+	Name: "Educated Travel",
+
+	AnglePref:       radsFromDegs(0.17),
+	RingMod:         107,
+	AverageDistance: 0.51,
+	MathFactor:      47,
+}
+
+var TwoEyeSet = LayerSet{
+	Code: "triangulation",
+	Name: "Gradual Triangulation",
+
+	AnglePref:       radsFromDegs(0.09),
+	RingMod:         100,
+	AverageDistance: 0.27,
+	MathFactor:      40,
 }
 
 type ChunkList []Chunk
@@ -45,9 +57,23 @@ func (t Chunk) ChunkDist(other Chunk) float64 {
 	return dist(float64(ax), float64(ay), float64(bx), float64(by))
 }
 
+type ThrowType int
+
+func (t ThrowType) String() string {
+	return throwNames[t]
+}
+
+const (
+	Overworld ThrowType = iota
+	Blind
+	Nether
+)
+
+var throwNames = map[ThrowType]string{Overworld: "overworld", Blind: "blind", Nether: "nether"}
+
 type Throw struct {
 	X, Y, A float64
-	Blind   bool
+	Type    ThrowType
 }
 
 func NewThrowFromArray(arr [3]float64) Throw {
@@ -55,7 +81,13 @@ func NewThrowFromArray(arr [3]float64) Throw {
 }
 
 func NewThrow(x, y, a float64) Throw {
-	return Throw{X: x, Y: y, A: radsFromDegs(a)}
+	return Throw{Type: Overworld, X: x, Y: y, A: radsFromDegs(a)}
+}
+
+func NewBlindThrow(x, y float64) Throw {
+	atan := math.Atan2(x, y) + math.Pi*2
+	atan = math.Mod(atan, math.Pi*2)
+	return Throw{Type: Blind, A: atan}
 }
 
 func (t Throw) Similar(other Throw) bool {
@@ -68,6 +100,7 @@ func (t Throw) Similar(other Throw) bool {
 type Session struct {
 	Throws      []Throw
 	CustomLayer *LayerSet
+	LayerSet    LayerSet
 
 	Scores     map[Chunk]int
 	TotalScore int
@@ -78,76 +111,6 @@ func NewSession(cl ...LayerSet) *Session {
 		return &Session{CustomLayer: &cl[0]}
 	}
 	return &Session{}
-}
-
-func (s *Session) Explain(t Throw, goal Chunk, guess Chunk) string {
-	chunks := ChunksInThrow(t)
-	logs := []string{}
-	for _, c := range chunks {
-		if c.ChunkDist(goal) > 300 && c.ChunkDist(guess) > 300 {
-			continue
-		}
-		logs = append(logs, fmt.Sprintf("\n%s angle %f, ring %d, scores", c, c.Angle(t.A, t.X, t.Y), RingID(c)))
-
-		for _, l := range s.Layers() {
-			logs = append(logs, fmt.Sprintf(`l1(%d)`, l([]Throw{t}, c)))
-		}
-	}
-	return strings.Join(logs, ",")
-}
-
-func (s *Session) SumScores(layers []Layer) (map[Chunk]int, int) {
-	scores := make(map[Chunk]int)
-	reject := make(map[Chunk]bool)
-	count := make(map[Chunk]int)
-
-	highest := 0
-	for _, t := range s.Throws {
-		chunks := ChunksInThrow(t)
-		for _, c := range chunks {
-			count[c]++
-		}
-	}
-	for c := range count {
-		score := s.Score(c)
-		if score == 0 {
-			reject[c] = true
-			continue
-		}
-		scores[c] += score
-		if scores[c] > highest {
-			highest = scores[c]
-		}
-	}
-	// clear all totally rejected chunk scores
-	rejects := 0
-	total := 0
-	for c, score := range scores {
-		if reject[c] || count[c] < len(s.Throws) || score < highest*8/10 {
-			rejects++
-			delete(scores, c)
-			continue
-		}
-		total += score
-	}
-
-	if DEBUG {
-		log.Println("summed scores, matched", len(scores), "rejected", rejects, "highscore", highest)
-	}
-	return scores, total
-}
-
-func (s *Session) Score(c Chunk) int {
-	score := 0
-	for _, l := range s.Layers() {
-		s := l(s.Throws, c)
-		if s == 0 {
-			// log.Println("chunk", c, "failed test", n)
-			return 0
-		}
-		score += s
-	}
-	return score
 }
 
 func (s *Session) Chunks() []Chunk {
@@ -172,19 +135,34 @@ func (s *Session) ByScore() []Chunk {
 	return chunks
 }
 
-func (s *Session) NewThrow(t Throw) {
+func (s *Session) NewThrow(t Throw) *Session {
 	s.Throws = append(s.Throws, t)
-	s.Scores, s.TotalScore = s.SumScores(s.Layers())
+	s.Scores, s.TotalScore = s.Layers().SumScores(s.Throws)
+	return s
 }
 
-func (s *Session) Layers() []Layer {
+func (s *Session) CalcLayerSet() LayerSet {
 	if s.CustomLayer != nil {
-		return s.CustomLayer.Layers()
+		return *s.CustomLayer
 	}
 	if len(s.Throws) == 1 {
-		return OneEyeSet().Layers()
+		if s.Throws[0].Type == Blind {
+			return ZeroEyeSet
+		}
+		return OneEyeSet
 	}
-	return TwoEyeSet().Layers()
+	return TwoEyeSet
+}
+
+func (s *Session) Layers() LayerSet {
+	appropriate := s.CalcLayerSet()
+	if s.LayerSet != appropriate {
+		s.LayerSet = appropriate
+		if DEBUG {
+			log.Println("switching layer set", appropriate)
+		}
+	}
+	return appropriate
 }
 
 func (s *Session) BestGuess() (Chunk, int) {

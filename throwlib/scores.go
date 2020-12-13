@@ -1,4 +1,4 @@
-package throwpro
+package throwlib
 
 import (
 	"fmt"
@@ -54,10 +54,62 @@ func RingID(c Chunk) int {
 type Layer func([]Throw, Chunk) int
 
 type LayerSet struct {
+	Code string
+	Name string
+
 	AnglePref       float64
 	RingMod         float64
 	AverageDistance float64
 	MathFactor      float64
+}
+
+func (ls LayerSet) SumScores(throws []Throw) (map[Chunk]int, int) {
+	scores := make(map[Chunk]int)
+	reject := make(map[Chunk]bool)
+	count := make(map[Chunk]int)
+
+	highest := 0
+	for _, t := range throws {
+		chunks := ChunksInThrow(t)
+		for _, c := range chunks {
+			count[c]++
+		}
+	}
+	for c := range count {
+		score := 0
+		for _, l := range ls.Layers() {
+			s := l(throws, c)
+			if s == 0 {
+				score = 0
+				break
+			}
+			score += s
+		}
+		if score == 0 {
+			reject[c] = true
+			continue
+		}
+		scores[c] += score
+		if scores[c] > highest {
+			highest = scores[c]
+		}
+	}
+	// clear all totally rejected chunk scores
+	rejects := 0
+	total := 0
+	for c, score := range scores {
+		if reject[c] || count[c] < len(throws) || score < highest*8/10 {
+			rejects++
+			delete(scores, c)
+			continue
+		}
+		total += score
+	}
+
+	if DEBUG {
+		log.Println("summed scores, matched", len(scores), "rejected", rejects, "highscore", highest)
+	}
+	return scores, total
 }
 
 func (ls LayerSet) Mutate() LayerSet {
@@ -131,8 +183,7 @@ func (ls LayerSet) CrossAngle(ts []Throw, c Chunk) int {
 		printout = false
 	}
 	score := 1
-	ax := 0.0
-	ay := 0.0
+
 	for n, t := range ts[:len(ts)-1] {
 		for _, ot := range ts[n+1:] {
 			k := ((ot.Y-t.Y)*math.Sin(ot.A) + (ot.X-t.X)*math.Cos(ot.A)) / math.Sin(ot.A-t.A)
@@ -141,11 +192,6 @@ func (ls LayerSet) CrossAngle(ts []Throw, c Chunk) int {
 
 			distFromPerfect := c.Dist(nx, ny)
 
-			if printout {
-				log.Printf("chunk %s crossangle %.1f %.1f dist %.1f", c, ax, ay, distFromPerfect)
-				log.Println("throws", ts)
-				log.Println("debug chunk", DEBUG_CHUNK)
-			}
 			if distFromPerfect < ls.MathFactor {
 				score += 4
 			}
@@ -159,15 +205,17 @@ func (ls LayerSet) CrossAngle(ts []Throw, c Chunk) int {
 				score += 1
 			}
 
-			ay += ny
-			ax += nx
+			if !printout {
+				continue
+			}
+
 			if printout {
-				log.Printf("chunk %s crossangle %.1f %.1f", c, nx, ny)
+				log.Printf("chunk %s crossangle %.1f %.1f dist %.1f", c, nx, ny, distFromPerfect)
+				log.Println("throws", ts)
+				log.Println("debug chunk", DEBUG_CHUNK)
 			}
 		}
 	}
-	// ax /= float64(len(ts))
-	// ay /= float64(len(ts))
 
 	return score
 }

@@ -1,4 +1,4 @@
-package throwpro
+package throwlib
 
 import (
 	"log"
@@ -34,8 +34,8 @@ var progressionTests = append([]progressionTest{
 }, loadTestsFromString(sample1)...)
 
 func TestTriangulationAccuracy(t *testing.T) {
-	distances := []int{0, 0, 0}
-	totals := []int{0, 0, 0}
+	distances := []int{0, 0, 0, 0}
+	totals := []int{0, 0, 0, 0}
 	for _, test := range progressionTests {
 		DEBUG_CHUNK = test.goal
 		sess := NewSession()
@@ -50,24 +50,51 @@ func TestTriangulationAccuracy(t *testing.T) {
 
 			if chunkDist > 10000 {
 				t.Logf("bad test result %#v, guessed %s", test, bestGuess)
-				t.Log(sess.Explain(throw, test.goal, bestGuess))
 			}
-			distances[num] += chunkDist
-			totals[num]++
+			distances[num+1] += chunkDist
+			totals[num+1]++
 		}
+		throw := NewBlindThrow(throws[0].X, throws[0].Y)
+		sess.NewThrow(throw)
+		bestGuess, _ := sess.BestGuess()
+		chunkDist := int(bestGuess.ChunkDist(test.goal))
+
+		if chunkDist > 10000 {
+			t.Logf("bad test result %#v, guessed %s", test, bestGuess)
+		}
+		distances[0] += chunkDist
+		totals[0]++
 	}
 
 	for throw, score := range distances {
 		score = score / totals[throw]
-		t.Logf("average throw %d accuracy for %d samples: %d blocks", throw+1, totals[throw], score)
+		t.Logf("average throw %d accuracy for %d samples: %d blocks", throw, totals[throw], score)
+	}
+}
+
+const TUNE_COUNT = 2000
+
+func TestTuneZeroConfigs(t *testing.T) {
+	ls := ZeroEyeSet
+	acc, _ := AverageAccuracy(ls, 0)
+	log.Println("better params", ls, acc)
+	for i := 0; i < TUNE_COUNT; i++ {
+		test := ls.Mutate()
+		newACC, _ := AverageAccuracy(test, 0)
+		// log.Println("trying params", test, newACC)
+		if newACC < acc {
+			ls = test
+			acc = newACC
+			log.Println("better params", ls, acc)
+		}
 	}
 }
 
 func TestTuneOneConfigs(t *testing.T) {
-	ls := OneEyeSet()
+	ls := OneEyeSet
 	acc, _ := AverageAccuracy(ls, 1)
 	log.Println("better params", ls, acc)
-	for i := 0; i < 100; i++ {
+	for i := 0; i < TUNE_COUNT; i++ {
 		test := ls.Mutate()
 		newACC, _ := AverageAccuracy(test, 1)
 		// log.Println("trying params", test, newACC)
@@ -80,10 +107,10 @@ func TestTuneOneConfigs(t *testing.T) {
 }
 
 func TestTuneTwoConfigs(t *testing.T) {
-	ls := TwoEyeSet()
+	ls := TwoEyeSet
 	acc, _ := AverageAccuracy(ls, 2)
 	log.Println("better params", ls, acc)
-	for i := 0; i < 100; i++ {
+	for i := 0; i < TUNE_COUNT; i++ {
 		test := ls.Mutate()
 		newACC, _ := AverageAccuracy(test, 2)
 		// log.Println("trying params", test, newACC)
@@ -103,6 +130,9 @@ func AverageAccuracy(ls LayerSet, throws int) (float64, int) {
 		sess := NewSession(ls)
 		if len(test.throws) < throws {
 			continue
+		}
+		if throws == 0 {
+			sess.NewThrow(NewBlindThrow(test.throws[0].X, test.throws[0].Y))
 		}
 		for _, throw := range test.throws[:throws] {
 			sess.NewThrow(throw)
@@ -155,9 +185,21 @@ func TestDeterministic(t *testing.T) {
 func TestProgression(t *testing.T) {
 	test := progressionTests[1]
 	DEBUG_CHUNK = test.goal
-	DEBUG = true
+	// DEBUG = true
 	sess := NewSession()
 	runnerUp := Chunk{56, -75}
+
+	throw := NewBlindThrow(test.throws[0].X, test.throws[0].Y)
+	guess, _ := NewSession().NewThrow(throw).BestGuess()
+
+	t.Logf("current angle: %f", guess.Angle(throw.A, throw.X, throw.Y))
+	if guess == test.goal {
+		t.Logf("goal angle: %f", guess.Angle(throw.A, throw.X, throw.Y))
+	}
+	if guess == runnerUp {
+		t.Logf("runnerUp angle: %f", guess.Angle(throw.A, throw.X, throw.Y))
+	}
+	t.Logf("throw %d matched %d, educated guess: %s, goal: %s", 0, len(sess.Scores), guess, test.goal)
 
 	for n, throw := range test.throws {
 		sess.NewThrow(throw)
@@ -170,7 +212,7 @@ func TestProgression(t *testing.T) {
 		if guess == runnerUp {
 			t.Logf("runnerUp angle: %f", guess.Angle(throw.A, throw.X, throw.Y))
 		}
-		t.Logf("throw %d matched %d, educated guess: %s, goal: %s", n, len(sess.Scores), guess, test.goal)
+		t.Logf("throw %d matched %d, educated guess: %s, goal: %s", n+1, len(sess.Scores), guess, test.goal)
 	}
 }
 
