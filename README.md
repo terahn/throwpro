@@ -1,5 +1,7 @@
 # ThrowPro
-ThrowPro is a simple and intuitive Minecraft Stronghold Calculator. Download distributions from [https://cudduw.com](cudduw.com).
+ThrowPro is a simple and intuitive Minecraft Stronghold Calculator. 
+Download distributions from [https://cudduw.com](cudduw.com).
+If anything goes wrong, please open an issue on this repo!
 
 # Basic Instructions
 1. ADD data by throwing an ender eye, staring right at it, and pressing F3+C.
