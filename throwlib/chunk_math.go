@@ -45,6 +45,39 @@ type LayerSet struct {
 	Weights [3]int
 }
 
+var ZeroEyeSet = LayerSet{
+	Code: "blind",
+
+	AnglePref:       radsFromDegs(0.01),
+	RingMod:         31,
+	AverageDistance: 0.05,
+	MathFactor:      62,
+	Weights:         [3]int{100, 100, 100},
+	ClusterWeight:   77,
+}
+
+var OneEyeSet = LayerSet{
+	Code: "educated",
+
+	AnglePref:       radsFromDegs(0.04),
+	RingMod:         110,
+	AverageDistance: 0.53,
+	MathFactor:      114,
+	Weights:         [3]int{100, 100, 100},
+	ClusterWeight:   175,
+}
+
+var TwoEyeSet = LayerSet{
+	Code: "triangulation",
+
+	AnglePref:       radsFromDegs(0.09),
+	RingMod:         185,
+	AverageDistance: 0.25,
+	MathFactor:      35,
+	Weights:         [3]int{100, 100, 100},
+	ClusterWeight:   270,
+}
+
 func (ls LayerSet) SumScores(throws []Throw) (map[Chunk]int, int) {
 	scores := make(map[Chunk]int)
 	reject := make(map[Chunk]bool)
