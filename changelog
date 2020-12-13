@@ -1,0 +1,25 @@
+v 0.5
+- added portal memory feature
+- help and debug info is expanded and moved to a new window
+- overall accuracy improvement via score-distance clustering
+- cleaned up code and prepared for open-source release
+
+v 0.4
+- added dbscan clustering support
+- all parameters are now machine learning provided
+- "secret" info enabled debugging and cluster rendering
+
+v 0.3
+- lower average errors, 1 throws from 1108 to 332, 2 throw from 235 to 214 blocks
+- internally refactor to support multiple confidence layers
+- added support for all rings
+
+v 0.2 
+- updated the interface to show some simple info and errors
+- repackaged the binary from 24mb to 4mb
+- added an icon
+- slightly tweaked algorithm to have less starting throw bias
+- prevented algorithm from score chunks zero at any point
+
+v 0.1
+- initial release with basic interface supporting 3 modes
