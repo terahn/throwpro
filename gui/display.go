@@ -132,7 +132,10 @@ func (f *FileWriter) WriteScratch(status string) error {
 		log.Println("error writing file", err.Error())
 		return err
 	}
-	return file.Sync()
+	if err := file.Sync(); err != nil {
+		return err
+	}
+	return file.Close()
 }
 
 func (f *FileWriter) Write(status string) error {
@@ -266,7 +269,9 @@ func (d *Display) Refresh() {
 	log.Println("updating ui...", status, mode)
 	d.top.SetText(status)
 	d.bottom.SetText(mode)
-	d.debug(d.f.Write(status))
+	if err := d.f.Write(status); err != nil {
+		d.debug(d.f.Write(status))
+	}
 }
 
 func (d *Display) Reset() {
