@@ -12,6 +12,8 @@ import (
 	"github.com/muesli/kmeans"
 )
 
+const SELECTION_METHOD = "closest" // or "highest"
+
 var DEBUG = false
 
 var DEBUG_CHUNK Chunk
@@ -186,14 +188,41 @@ func (s *Session) BestGuess(ts ...Throw) Guess {
 	if len(ts) == 0 {
 		panic("no throws")
 	}
-	t1 := time.Now() // evaluation
 
-	s.Throws = ts
-	s.Scores, s.TotalScore = s.Layers().SumScores(s.Throws)
+	if len(ts) == 1 {
+		s.Throws = ts
+		s.Scores, s.TotalScore = s.Layers().SumScores(s.Throws)
+		return s.MakeGuess()
+	}
 
-	if len(s.Scores) == 0 {
+	s.Throws = ts[len(ts)-2:]
+	if _, total := s.Layers().SumScores(ts[len(ts)-2:]); total == 0 {
+		if DEBUG {
+			log.Println("throws scored zero", ts[len(ts)-2:])
+		}
 		return Guess{Method: "reset"}
 	}
+
+	g := Guess{Confidence: 0, Method: "reset"}
+	for n, ts := range rPool(2, ts, nil, nil) {
+		s.Throws = ts
+		s.Scores, s.TotalScore = s.Layers().SumScores(s.Throws)
+		if s.TotalScore == 0 {
+			continue
+		}
+
+		guess := s.MakeGuess()
+		if guess.Confidence > g.Confidence {
+			g = guess
+		}
+		if DEBUG {
+			log.Println("combination", n, "confidence", guess.Confidence)
+		}
+	}
+	return g
+}
+
+func (s *Session) MakeGuess() Guess {
 	if s.TotalScore == 0 {
 		panic("no score")
 	}
@@ -326,11 +355,35 @@ func (s *Session) BestGuess(ts ...Throw) Guess {
 	}
 
 	if DEBUG {
-		log.Printf(`scoring:%s clustering:%s rendering:%s choosing:%s`, t2.Sub(t1), t3.Sub(t2), t4.Sub(t3), time.Since(t4))
+		log.Printf(`clustering:%s rendering:%s choosing:%s`, t3.Sub(t2), t4.Sub(t3), time.Since(t4))
+	}
+	if SELECTION_METHOD == "closest" {
+		return Guess{
+			Chunk:      closest,
+			Confidence: s.Scores[closest] * 1000 / (s.TotalScore + 2),
+			Method:     s.Layers().Code,
+		}
 	}
 	return Guess{
-		Chunk:      closest,
-		Confidence: s.Scores[closest] * 1000 / (s.TotalScore + 2),
+		Chunk:      highest,
+		Confidence: s.Scores[highest] * 1000 / (s.TotalScore + 2),
 		Method:     s.Layers().Code,
 	}
+}
+
+func rPool(p int, n []Throw, c []Throw, cc [][]Throw) [][]Throw {
+	if len(n) == 0 || p <= 0 {
+		return cc
+	}
+	p--
+	for i := range n {
+		r := make([]Throw, len(c)+1)
+		copy(r, c)
+		r[len(r)-1] = n[i]
+		if p == 0 {
+			cc = append(cc, r)
+		}
+		cc = rPool(p, n[i+1:], r, cc)
+	}
+	return cc
 }

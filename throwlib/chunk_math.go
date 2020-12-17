@@ -6,6 +6,8 @@ import (
 	"math/rand"
 )
 
+const MAX_EYE_ANGLE = 0.85
+
 var rings = [][2]int{{1408, 2688}, {4480, 5760}, {7552, 8832}, {10624, 11904}, {13696, 14976}, {16768, 18048}, {19840, 21120}, {22912, 24192}}
 
 func ChunkFromCenter(x, y int) Chunk {
@@ -48,7 +50,7 @@ type LayerSet struct {
 var ZeroEyeSet = LayerSet{
 	Code: "blind",
 
-	AnglePref:       radsFromDegs(0.01),
+	AnglePref:       radsFromDegs(0.1),
 	RingMod:         31,
 	AverageDistance: 0.05,
 	MathFactor:      62,
@@ -59,7 +61,7 @@ var ZeroEyeSet = LayerSet{
 var OneEyeSet = LayerSet{
 	Code: "educated",
 
-	AnglePref:       radsFromDegs(0.04),
+	AnglePref:       radsFromDegs(0.02),
 	RingMod:         110,
 	AverageDistance: 0.53,
 	MathFactor:      114,
@@ -70,7 +72,7 @@ var OneEyeSet = LayerSet{
 var TwoEyeSet = LayerSet{
 	Code: "triangulation",
 
-	AnglePref:       radsFromDegs(0.09),
+	AnglePref:       radsFromDegs(0.04),
 	RingMod:         185,
 	AverageDistance: 0.25,
 	MathFactor:      35,
@@ -191,7 +193,7 @@ func (ls LayerSet) Angle(ts []Throw, c Chunk) int {
 	total := 1
 	for _, t := range ts {
 		delta := math.Abs(c.Angle(t.A, t.X, t.Y))
-		if delta > radsFromDegs(.7) {
+		if delta > radsFromDegs(MAX_EYE_ANGLE) {
 			if c == DEBUG_CHUNK {
 				log.Println("ls.angle: discarded", delta)
 			}
@@ -208,7 +210,7 @@ func (ls LayerSet) Angle(ts []Throw, c Chunk) int {
 		}
 	}
 	if c == DEBUG_CHUNK {
-		log.Println("ls.angle:", total)
+		log.Println("ls.angle:"+ls.Code+" goal scored", total)
 	}
 	return total / len(ts)
 }
@@ -330,13 +332,14 @@ func ChunksInThrow(t Throw) ChunkList {
 		for xo := -1; xo <= 1; xo++ {
 			for yo := -1; yo <= 1; yo++ {
 				chunk := Chunk{(blockX-centerX)/16 + xo, (blockY-centerY)/16 + yo}
+				if _, found := chunksFound[chunk]; found {
+					continue
+				}
+				chunksFound[chunk] = true
 				if RingID(chunk) == -1 {
 					continue
 				}
-				if _, found := chunksFound[chunk]; !found {
-					chunksFound[chunk] = true
-					chunks = append(chunks, chunk)
-				}
+				chunks = append(chunks, chunk)
 			}
 		}
 

@@ -43,6 +43,15 @@ func TestTriangulationAccuracy(t *testing.T) {
 		DEBUG_CHUNK = test.goal
 		sess := NewSession()
 		throws := test.throws
+
+		throw := NewBlindThrow(throws[0].X, throws[0].Y)
+		bestGuess := Chunk(sess.BestGuess(throw).Chunk)
+		chunkDist := int(bestGuess.ChunkDist(test.goal))
+
+		if chunkDist > 1000 {
+			t.Logf("bad blind test %d result %#v, guessed %s", n, test, bestGuess)
+		}
+
 		if len(throws) > 3 {
 			throws = throws[:3]
 		}
@@ -50,20 +59,13 @@ func TestTriangulationAccuracy(t *testing.T) {
 			bestGuess := Chunk(sess.BestGuess(throws[:num+1]...).Chunk)
 			chunkDist := int(bestGuess.ChunkDist(test.goal))
 
-			if chunkDist > 10000 {
-				t.Logf("bad test %d result %#v, guessed %s", n, test, bestGuess)
+			if chunkDist > 1000 {
+				t.Logf("bad %deye test %d result %#v, guessed %s", num, n, test, bestGuess)
 			}
 			distances[num+1] += chunkDist
 			totals[num+1]++
 		}
 
-		throw := NewBlindThrow(throws[0].X, throws[0].Y)
-		bestGuess := Chunk(sess.BestGuess(throw).Chunk)
-		chunkDist := int(bestGuess.ChunkDist(test.goal))
-
-		if chunkDist > 10000 {
-			t.Logf("bad test result %#v, guessed %s", test, bestGuess)
-		}
 		distances[0] += chunkDist
 		totals[0]++
 	}
@@ -179,7 +181,7 @@ func TestDeterministic(t *testing.T) {
 }
 
 func TestProgression(t *testing.T) {
-	test := progressionTests[1]
+	test := progressionTests[15]
 	DEBUG_CHUNK = test.goal
 	DEBUG = true
 	sess := NewSession()
@@ -188,15 +190,15 @@ func TestProgression(t *testing.T) {
 	guess := Chunk(sess.BestGuess(throw).Chunk)
 
 	t.Logf("current angle: %f", guess.Angle(throw.A, throw.X, throw.Y))
-	t.Logf("throw %d matched %d, educated guess: %s, goal: %s", 0, len(sess.Scores), guess, test.goal)
+	t.Logf("blind guess matched %d, guess: %s, goal: %s", len(sess.Scores), guess, test.goal)
 
 	for n, throw := range test.throws {
 		g := sess.BestGuess(test.throws[:n+1]...)
 		guess := Chunk(g.Chunk)
 
 		t.Logf("current angle: %f", guess.Angle(throw.A, throw.X, throw.Y))
-		t.Logf("throw %d matchd %d, config %v", n+1, len(sess.Scores), throw)
-		t.Logf("throw %d educated guess: %s, goal: %s", n+1, g, test.goal)
+		t.Logf("throw %d matched %d, config %v", n+1, len(sess.Scores), throw)
+		t.Logf("throw %d guess: `%s`, goal: %s", n+1, g, test.goal)
 	}
 }
 
@@ -231,7 +233,7 @@ func loadTestsFromString(s string) []progressionTest {
 					continue
 				}
 				delta := math.Abs(new.goal.Angle(t.A, t.X, t.Y))
-				if delta > radsFromDegs(1) {
+				if delta > radsFromDegs(MAX_EYE_ANGLE) {
 					skip = true
 					log.Println("skipping bad throw", t, str)
 				}
