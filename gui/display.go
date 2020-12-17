@@ -18,7 +18,7 @@ import (
 	"github.com/dantoye/throwpro/throwlib"
 )
 
-var name = lns(`ThrowPro Minecraft Assistant`, `Version 0.5`)
+var name = lns(`ThrowPro Minecraft Assistant`, `Version 0.6`)
 
 var BLURB = lns(
 	`Basic Instructions`,

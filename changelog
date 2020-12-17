@@ -1,3 +1,8 @@
+v 0.6
+- added performance improvements with raycast and initial collection
+- added best-pair to find the pair of throws that produce highest confidence
+- other minor improvements and stability fixes
+
 v 0.5
 - added portal memory feature
 - help and debug info is expanded and moved to a new window
