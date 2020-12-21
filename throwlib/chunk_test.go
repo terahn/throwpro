@@ -3,6 +3,7 @@ package throwlib
 import (
 	"log"
 	"math"
+	"math/rand"
 	"strconv"
 	"strings"
 	"testing"
@@ -13,7 +14,7 @@ type progressionTest struct {
 	goal   Chunk
 }
 
-const TUNE_COUNT = 40
+const TUNE_COUNT = 20
 
 var progressionTests = append([]progressionTest{
 	{
@@ -76,13 +77,25 @@ func TestTriangulationAccuracy(t *testing.T) {
 	}
 }
 
+func AverageBlindAccuracy(ls LayerSet, tests int) float64 {
+	sum := 0.0
+	total := int64(tests)
+	for i := int64(0); i < total; i++ {
+		throw := NewBlindThrow(rand.Float64()*400-200, rand.Float64()*400-200)
+		closest := ClosestStronghold(i, throw)
+		guess := Chunk(NewSession(ls).BestGuess(throw).Chunk)
+		sum += guess.ChunkDist(closest)
+	}
+	return sum / float64(total)
+}
+
 func TestTuneZeroConfigs(t *testing.T) {
 	ls := ZeroEyeSet
-	acc, _ := AverageAccuracy(ls, 0)
+	acc := AverageBlindAccuracy(ls, 50)
 	log.Println("better params", ls, acc)
 	for i := 0; i < TUNE_COUNT; i++ {
 		test := ls.Mutate()
-		newACC, _ := AverageAccuracy(test, 0)
+		newACC := AverageBlindAccuracy(test, 100+50*i)
 		// log.Println("trying params", test, newACC)
 		if newACC < acc {
 			ls = test

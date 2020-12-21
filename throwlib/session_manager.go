@@ -53,14 +53,11 @@ func (sm *SessionManager) NewThrow(throw Throw) {
 	}
 
 	sm.Throws = append(sm.Throws, throw)
-	guess := sm.Backend.BestGuess(sm.Throws...)
-	if guess.Method == "reset" {
+	sm.Guess = sm.Backend.BestGuess(sm.Throws...)
+	if sm.Guess.Method == "educated" {
 		sm.Throws = []Throw{throw}
-		sm.Portal = nil
-		guess = sm.Backend.BestGuess(sm.Throws...)
 		log.Println("new session for throw", throw)
 	}
-	sm.Guess = guess
 }
 
 // /execute in minecraft:overworld run tp @s -214.79 104.61 386.16 76.50 -32.40

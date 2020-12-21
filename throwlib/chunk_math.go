@@ -50,12 +50,12 @@ type LayerSet struct {
 var ZeroEyeSet = LayerSet{
 	Code: "blind",
 
-	AnglePref:       radsFromDegs(0.077),
+	AnglePref:       radsFromDegs(0.08),
 	RingMod:         35,
-	AverageDistance: 0.05,
-	MathFactor:      84,
+	AverageDistance: 0.06,
+	MathFactor:      360,
 	Weights:         [3]int{100, 100, 100},
-	ClusterWeight:   89,
+	ClusterWeight:   60,
 }
 
 var OneEyeSet = LayerSet{

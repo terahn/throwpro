@@ -200,7 +200,7 @@ func (s *Session) BestGuess(ts ...Throw) Guess {
 		if DEBUG {
 			log.Println("throws scored zero", ts[len(ts)-2:])
 		}
-		return Guess{Method: "reset"}
+		return s.BestGuess(ts[len(ts)-1])
 	}
 
 	g := Guess{Confidence: 0, Method: "reset"}

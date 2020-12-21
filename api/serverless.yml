@@ -1,0 +1,32 @@
+service: throwpro-api
+
+frameworkVersion: ">=2.0.0"
+
+provider:
+  name: aws
+  runtime: go1.x
+  usagePlan:
+    quota:
+      limit: 100000
+      offset: 2
+      period: MONTH
+    throttle:
+      burstLimit: 50
+      rateLimit: 50
+  apiKeys:
+    - free
+  
+functions:
+  guess:
+    handler: artifacts/throwpro_api
+    events:
+      - http:
+          path: guess
+          method: post
+          private: true
+
+package:
+ exclude:
+   - ./**
+ include:
+   - ./artifacts/**
