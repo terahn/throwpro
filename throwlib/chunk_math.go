@@ -51,33 +51,39 @@ var ZeroEyeSet = LayerSet{
 	Code: "blind",
 
 	AnglePref:       radsFromDegs(0.08),
-	RingMod:         35,
-	AverageDistance: 0.06,
-	MathFactor:      360,
-	Weights:         [3]int{100, 100, 100},
-	ClusterWeight:   60,
+	RingMod:         33,
+	AverageDistance: 0.187,
+	Weights:         [3]int{20, 100, 0},
+	ClusterWeight:   150,
 }
 
 var OneEyeSet = LayerSet{
 	Code: "educated",
 
-	AnglePref:       radsFromDegs(0.05),
+	AnglePref:       radsFromDegs(0.015),
 	RingMod:         88,
-	AverageDistance: 0.63,
-	MathFactor:      225,
-	Weights:         [3]int{100, 100, 100},
-	ClusterWeight:   130,
+	AverageDistance: 0.2,
+	MathFactor:      246,
+	Weights:         [3]int{50, 80, 0},
+	ClusterWeight:   100,
 }
 
 var TwoEyeSet = LayerSet{
 	Code: "triangulation",
 
-	AnglePref:       radsFromDegs(0.04),
-	RingMod:         170,
-	AverageDistance: 0.25,
-	MathFactor:      35,
-	Weights:         [3]int{100, 100, 100},
-	ClusterWeight:   250,
+	AnglePref:       radsFromDegs(0.06),
+	RingMod:         150,
+	AverageDistance: 0.2,
+	MathFactor:      38,
+	Weights:         [3]int{70, 30, 100},
+	ClusterWeight:   180,
+}
+
+var HyperSet = LayerSet{
+	Code:          "hyper",
+	AnglePref:     radsFromDegs(0.01),
+	Weights:       [3]int{0, 0, 100},
+	ClusterWeight: 180,
 }
 
 func (ls LayerSet) SumScores(throws []Throw) (map[Chunk]int, int) {
@@ -102,7 +108,7 @@ func (ls LayerSet) SumScores(throws []Throw) (map[Chunk]int, int) {
 		}
 		score := 0
 		for n, l := range layers {
-			s := l(throws, c) * ls.Weights[n]
+			s := l(throws, c)
 			if s < 0 {
 				log.Println("sumscore: goal score", s, "for layer", n, "weight", ls.Weights[n])
 				panic("negative score")
@@ -114,7 +120,7 @@ func (ls LayerSet) SumScores(throws []Throw) (map[Chunk]int, int) {
 				score = 0
 				break
 			}
-			score += s
+			score += s * ls.Weights[n]
 		}
 		if score == 0 {
 			reject[c] = true
@@ -205,7 +211,13 @@ func (ls LayerSet) Angle(ts []Throw, c Chunk) int {
 		if delta < ls.AnglePref*2 {
 			total++
 		}
-		if delta < ls.AnglePref*3 {
+		if delta < ls.AnglePref*4 {
+			total++
+		}
+		if delta < ls.AnglePref*6 {
+			total++
+		}
+		if delta < ls.AnglePref*9 {
 			total++
 		}
 	}
@@ -275,15 +287,24 @@ func (ls LayerSet) CrossAngle(ts []Throw, c Chunk) int {
 
 	if CROSSANGLE_EXPERIMENT {
 		if distFromPerfect < ls.MathFactor {
+			return 7
+		}
+		if distFromPerfect < ls.MathFactor*2 {
+			return 6
+		}
+		if distFromPerfect < ls.MathFactor*4 {
+			return 5
+		}
+		if distFromPerfect < ls.MathFactor*8 {
 			return 4
 		}
-		if distFromPerfect < ls.MathFactor*5 {
+		if distFromPerfect < ls.MathFactor*16 {
 			return 3
 		}
-		if distFromPerfect < ls.MathFactor*12 {
+		if distFromPerfect < ls.MathFactor*32 {
 			return 2
 		}
-		if distFromPerfect < ls.MathFactor*25 {
+		if distFromPerfect < ls.MathFactor*64 {
 			return 1
 		}
 		return 0
