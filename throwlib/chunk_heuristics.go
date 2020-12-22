@@ -129,6 +129,10 @@ type Session struct {
 
 	Scores     map[Chunk]int
 	TotalScore int
+
+	Options struct {
+		Hyper bool
+	}
 }
 
 func NewSession(cl ...LayerSet) *Session {
@@ -170,6 +174,9 @@ func (s *Session) CalcLayerSet() LayerSet {
 		}
 		return OneEyeSet
 	}
+	if s.Options.Hyper {
+		return HyperSet
+	}
 	return TwoEyeSet
 }
 
@@ -195,15 +202,14 @@ func (s *Session) BestGuess(ts ...Throw) Guess {
 		return s.MakeGuess()
 	}
 
+	g := Guess{Confidence: 0, Method: "reset"}
 	s.Throws = ts[len(ts)-2:]
 	if _, total := s.Layers().SumScores(ts[len(ts)-2:]); total == 0 {
 		if DEBUG {
 			log.Println("throws scored zero", ts[len(ts)-2:])
 		}
-		return s.BestGuess(ts[len(ts)-1])
+		return g
 	}
-
-	g := Guess{Confidence: 0, Method: "reset"}
 	for n, ts := range rPool(2, ts, nil, nil) {
 		s.Throws = ts
 		s.Scores, s.TotalScore = s.Layers().SumScores(s.Throws)

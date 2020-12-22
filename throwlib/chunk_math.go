@@ -80,10 +80,14 @@ var TwoEyeSet = LayerSet{
 }
 
 var HyperSet = LayerSet{
-	Code:          "hyper",
-	AnglePref:     radsFromDegs(0.01),
-	Weights:       [3]int{0, 0, 100},
-	ClusterWeight: 180,
+	Code: "hyper",
+
+	AnglePref:       radsFromDegs(0.01),
+	RingMod:         0,
+	AverageDistance: 0.3,
+	MathFactor:      4,
+	Weights:         [3]int{20, 10, 100},
+	ClusterWeight:   150,
 }
 
 func (ls LayerSet) SumScores(throws []Throw) (map[Chunk]int, int) {

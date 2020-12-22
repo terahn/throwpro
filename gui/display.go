@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,7 +19,7 @@ import (
 	"github.com/dantoye/throwpro/throwlib"
 )
 
-var name = lns(`ThrowPro Minecraft Assistant`, `Version 0.6`)
+var name = lns(`ThrowPro Minecraft Assistant`, `Version 0.7`)
 
 var BLURB = lns(
 	`Basic Instructions`,
@@ -29,6 +30,8 @@ var BLURB = lns(
 	`Advanced Use Tips`,
 	`1. Predict inside nether to remember your portal.`,
 	`2. Don't look up at the sky if you want a blind guess.`,
+	`3. Cracked mode is wild. Lower your FOV and sensitivity before using.`,
+	`4. Offline mode runs the predictions on your computer.`,
 	``,
 	`For further help, message @Cudduw.`,
 )
@@ -37,29 +40,31 @@ var FORMATS = map[string]string{
 	"blind":         `{nether} nether to go {distance} blocks {line}({coords} overworld)`,
 	"educated":      `{nether} nether to go {distance} blocks {line}({coords} overworld)`,
 	"triangulation": `{coords} is {confidence} likely {line}({distance} away, {nether} nether)`,
+	"hyper":         `{nether} nether is {distance} blocks {line}({coords} overworld, {confidence} likely)`,
 }
 
 var METHODS = map[string]string{
 	"blind":         `Blind Guess`,
 	"educated":      `Educated Travel`,
 	"triangulation": `Gradual Triangulation`,
+	"hyper":         `Totally Cracked`,
 }
 
 type Monitor struct {
 	timer      *time.Timer
-	sm         *throwlib.SessionManager
+	res        *throwlib.Response
 	timeout    time.Duration
 	clipTicker *time.Ticker
+	clips      []string
 
 	*Display
 	*FileWriter
 }
 
-func StartClipboardMonitor(d *Display, sm *throwlib.SessionManager) {
+func StartClipboardMonitor(d *Display) {
 	m := Monitor{timeout: time.Minute * 9}
 	m.clipTicker = time.NewTicker(50 * time.Millisecond)
 	m.Display = d
-	m.sm = sm
 	go m.Block()
 }
 
@@ -81,14 +86,19 @@ func (m *Monitor) Block() {
 			continue
 		}
 		lastText = text
-		throw, err := throwlib.NewThrowFromString(text)
-		if err != nil {
-			log.Println("skipping an invalid clipboard:", err.Error())
-			log.Println(text)
+		if !strings.HasPrefix(text, "/execute") {
 			continue
 		}
-		m.sm.NewThrow(throw)
-		m.Display.Refresh()
+
+		m.clips = append(m.clips, text)
+		req := throwlib.Request{Clips: m.clips}
+		req.Options.Hyper = m.Display.Options.CrackedMode
+		res := throwlib.PostRequest(req, m.Display.Options.OfflineMode)
+		if res.Reset {
+			log.Println("got a reset response")
+			m.clips = m.clips[len(m.clips)-1:]
+		}
+		m.Display.Refresh(res)
 		m.ExtendTimer()
 	}
 }
@@ -97,7 +107,10 @@ func (m *Monitor) ExtendTimer() {
 	if m.timer != nil {
 		m.timer.Stop()
 	}
-	m.timer = time.AfterFunc(m.timeout, func() { m.Reset() })
+	m.timer = time.AfterFunc(m.timeout, func() {
+		m.clips = nil
+		m.Reset()
+	})
 }
 
 type FileWriter struct {
@@ -153,14 +166,16 @@ type Display struct {
 	debug  func(error)
 
 	window fyne.Window
+	f      *FileWriter
 
-	sm *throwlib.SessionManager
-	f  *FileWriter
+	Options struct {
+		OfflineMode bool
+		CrackedMode bool
+	}
 }
 
-func NewDisplay(sm *throwlib.SessionManager, f *FileWriter) *Display {
+func NewDisplay(f *FileWriter) *Display {
 	d := new(Display)
-	d.sm = sm
 	d.f = f
 
 	log.Println("creating UI")
@@ -215,10 +230,13 @@ func NewDisplay(sm *throwlib.SessionManager, f *FileWriter) *Display {
 	}
 
 	w.SetContent(widget.NewVBox(mainUI, secondUI, showButton))
-	help.SetContent(widget.NewVBox(infoUI, debugUI))
+	cracked := widget.NewCheck("Cracked Mode", func(b bool) { d.Options.CrackedMode = b })
+	online := widget.NewCheck("Offline Mode", func(b bool) { d.Options.OfflineMode = b })
+	opts := widget.NewHBox(cracked, online)
+	help.SetContent(widget.NewVBox(infoUI, debugUI, opts))
 	infoUI.SetText(BLURB)
 
-	d.Refresh()
+	d.Reset()
 	return d
 }
 
@@ -234,21 +252,13 @@ func (d *Display) Stop() {
 	}
 }
 
-func (d *Display) Refresh() {
-	if len(d.sm.Throws) == 0 {
-		d.Reset()
-		return
-	}
-	guess := d.sm.Guess
-	throw := d.sm.Throws[len(d.sm.Throws)-1]
-	chunk := throwlib.Chunk(guess.Chunk)
-	conf := guess.Confidence
+func (d *Display) Refresh(res throwlib.Response) {
+	x, y := res.Coords[0], res.Coords[1]
+	px, py := res.Player[0], res.Player[1]
 
-	x, y := chunk.Staircase()
-	distPlayer := chunk.Dist(throw.X, throw.Y)
-
+	distPlayer := dist(x, y, px, py)
 	distStr := fmt.Sprintf(`%.1fk`, distPlayer/1000)
-	confStr := fmt.Sprintf(`%.1f%%`, float64(conf)/10)
+	confStr := fmt.Sprintf(`%.1f%%`, float64(res.Confidence)/10)
 	coords := fmt.Sprintf(`%d,%d`, x, y)
 	nether := fmt.Sprintf(`%d,%d`, x/8, y/8)
 
@@ -259,9 +269,9 @@ func (d *Display) Refresh() {
 		`{nether}`, nether,
 		`{line}`, "\n",
 	)
-	status := replacer.Replace(FORMATS[guess.Method])
-	mode := "Mode: " + METHODS[guess.Method]
-	if portal := d.sm.Portal; portal != nil {
+	status := replacer.Replace(FORMATS[res.Method])
+	mode := "Mode: " + METHODS[res.Method]
+	if portal := res.Portal; portal != nil {
 		mode = fmt.Sprintf("Portal Location: %d,%d", portal[0], portal[1])
 		status += fmt.Sprintf("\nportal location: %d,%d", portal[0], portal[1])
 	}
@@ -276,7 +286,6 @@ func (d *Display) Refresh() {
 
 func (d *Display) Reset() {
 	d.top.SetText(name)
-	d.sm.Throws = nil
 	d.bottom.SetText("Look at ender eye and press F3+C.")
 }
 
@@ -285,10 +294,15 @@ func lns(ss ...string) string {
 }
 
 func main() {
-	sm := throwlib.NewSessionManager()
 	file := NewFileWriter()
-	display := NewDisplay(sm, file)
+	display := NewDisplay(file)
 
-	StartClipboardMonitor(display, sm)
+	StartClipboardMonitor(display)
 	display.Block()
+}
+
+func dist(x, y, bx, by int) float64 {
+	dx := float64(bx - x)
+	dy := float64(by - y)
+	return math.Sqrt(dx*dx + dy*dy)
 }
