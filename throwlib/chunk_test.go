@@ -187,7 +187,7 @@ func TestDeterministic(t *testing.T) {
 		guess1 := NewSession().BestGuess(throw)
 		guess2 := NewSession().BestGuess(throw)
 
-		if guess1 != guess2 {
+		if guess1.Confidence != guess2.Confidence || guess1.Chunk != guess2.Chunk {
 			t.Errorf("mismatching guesses")
 		}
 	}

@@ -94,10 +94,7 @@ func (m *Monitor) Block() {
 		req := throwlib.Request{Clips: m.clips}
 		req.Options.Hyper = m.Display.Options.CrackedMode
 		res := throwlib.PostRequest(req, m.Display.Options.OfflineMode)
-		if res.Reset {
-			log.Println("got a reset response")
-			m.clips = m.clips[len(m.clips)-1:]
-		}
+		m.clips = res.Keep
 		m.Display.Refresh(res)
 		m.ExtendTimer()
 	}

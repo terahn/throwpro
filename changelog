@@ -1,3 +1,11 @@
+v 0.7
+- added an aws lambda version which is mounted behind api gateway
+- added one free rate-limited token, now improvements won't require redownloads
+- program now defaults to using the endpoint for calculations
+- began collectig throw data for future optimizations and ml training
+- added optional "cracked mode" which can be much more accurate at low fov
+- general accuracy improvements
+
 v 0.6
 - added performance improvements with raycast and initial collection
 - added best-pair to find the pair of throws that produce highest confidence

@@ -99,6 +99,7 @@ type Guess struct {
 	Chunk      [2]int `json:"chunk"`
 	Method     string `json:"method"`
 	Confidence int    `json:"confidence"`
+	Used       []Throw
 }
 
 func (g Guess) String() string {
@@ -368,12 +369,14 @@ func (s *Session) MakeGuess() Guess {
 			Chunk:      closest,
 			Confidence: s.Scores[closest] * 1000 / (s.TotalScore + 2),
 			Method:     s.Layers().Code,
+			Used:       s.Throws,
 		}
 	}
 	return Guess{
 		Chunk:      highest,
 		Confidence: s.Scores[highest] * 1000 / (s.TotalScore + 2),
 		Method:     s.Layers().Code,
+		Used:       s.Throws,
 	}
 }
 

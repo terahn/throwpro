@@ -21,9 +21,9 @@ type Response struct {
 	Player *[2]int `json:"player"`
 	Portal *[2]int `json:"portal"`
 
-	Method     string `json:"method"`
-	Confidence int    `json:"confidence"`
-	Reset      bool   `json:"reset"`
+	Method     string   `json:"method"`
+	Confidence int      `json:"confidence"`
+	Keep       []string `json:"keep"`
 }
 
 func NewResponse(req Request) Response {
@@ -38,6 +38,8 @@ func NewResponse(req Request) Response {
 
 	log.Println("handling request with", len(req.Clips), "clips")
 
+	sources := map[Throw]string{}
+	used := []string{}
 	for _, text := range req.Clips {
 		throw, err := NewThrowFromString(text)
 		if err != nil {
@@ -45,9 +47,12 @@ func NewResponse(req Request) Response {
 			log.Println(text)
 			continue
 		}
+		sources[throw] = text
+
 		if throw.Type == Nether {
 			if res.Portal == nil {
 				res.Portal = &[2]int{int(throw.X / 8), int(throw.Y / 8)}
+				used = append(used, text)
 			}
 			if len(sess.Throws) > 0 {
 				continue
@@ -75,12 +80,15 @@ func NewResponse(req Request) Response {
 	guess := sess.BestGuess(sess.Throws...)
 	if guess.Method == "reset" {
 		sess.Throws = []Throw{lastThrow}
-		res.Reset = true
 		guess = sess.BestGuess(sess.Throws...)
 		log.Println("new session for throw", lastThrow)
 	}
+	for _, t := range guess.Used {
+		used = append(used, sources[t])
+	}
 	x, y := Chunk(guess.Chunk).Staircase()
 
+	res.Keep = used
 	res.Chunk = &guess.Chunk
 	res.Coords = &[2]int{x, y}
 	res.Player = &[2]int{int(lastThrow.X), int(lastThrow.Y)}

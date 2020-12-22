@@ -62,7 +62,7 @@ var OneEyeSet = LayerSet{
 
 	AnglePref:       radsFromDegs(0.015),
 	RingMod:         88,
-	AverageDistance: 0.2,
+	AverageDistance: 0.35,
 	MathFactor:      246,
 	Weights:         [3]int{50, 80, 0},
 	ClusterWeight:   100,
@@ -73,9 +73,9 @@ var TwoEyeSet = LayerSet{
 
 	AnglePref:       radsFromDegs(0.06),
 	RingMod:         150,
-	AverageDistance: 0.2,
+	AverageDistance: 0.3,
 	MathFactor:      38,
-	Weights:         [3]int{70, 30, 100},
+	Weights:         [3]int{20, 10, 100},
 	ClusterWeight:   180,
 }
 
@@ -86,7 +86,7 @@ var HyperSet = LayerSet{
 	RingMod:         0,
 	AverageDistance: 0.3,
 	MathFactor:      4,
-	Weights:         [3]int{20, 10, 100},
+	Weights:         [3]int{100, 5, 100},
 	ClusterWeight:   150,
 }
 
