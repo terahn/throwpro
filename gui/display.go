@@ -33,7 +33,7 @@ var BLURB = lns(
 	`3. Cracked mode is wild. Lower your FOV and sensitivity before using.`,
 	`4. Offline mode runs the predictions on your computer.`,
 	``,
-	`For further help, message @Cudduw.`,
+	`For further help, message @Cudduw or open an issue on the github repo.`,
 )
 
 var FORMATS = map[string]string{
@@ -208,8 +208,9 @@ func NewDisplay(f *FileWriter) *Display {
 	d.Reset()
 
 	infoUI := widget.NewLabel("Info")
-	debugUI := widget.NewLabel("Debug")
+	debugUI := widget.NewEntry()
 	debugUI.SetText("Writing results to " + f.path)
+	debugUI.Disable()
 	d.debug = func(e error) {
 		if e == nil {
 			return
