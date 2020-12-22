@@ -13,6 +13,7 @@ type Request struct {
 	Options struct {
 		Hyper bool `json:"hyper"`
 	} `json:"options"`
+	Session string `json:"session_id"`
 }
 
 type Response struct {
