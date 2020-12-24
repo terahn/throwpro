@@ -9,7 +9,7 @@ windows:
 
 macos:
 	go build -o artifacts/ThrowPro.app/Contents/MacOS/ThrowPro ./gui
-	cd artifacts && zip throwpro_v07_mac.zip ThrowPro.app
+	cd artifacts && zip -r throwpro_v07_mac.zip ThrowPro.app
 	rm -rf artifacts/ThrowPro.app
 	
 lambda:
