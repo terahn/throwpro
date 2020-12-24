@@ -14,7 +14,7 @@ type progressionTest struct {
 	goal   Chunk
 }
 
-const TUNE_COUNT = 20
+const TUNE_COUNT = 200
 
 var progressionTests = append([]progressionTest{
 	{
@@ -194,7 +194,7 @@ func TestDeterministic(t *testing.T) {
 }
 
 func TestProgression(t *testing.T) {
-	test := progressionTests[15]
+	test := progressionTests[1]
 	DEBUG_CHUNK = test.goal
 	DEBUG = true
 	sess := NewSession()

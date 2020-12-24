@@ -9,6 +9,7 @@ import (
 const MAX_EYE_ANGLE = 0.85
 
 var rings = [][2]int{{1408, 2688}, {4480, 5760}, {7552, 8832}, {10624, 11904}, {13696, 14976}, {16768, 18048}, {19840, 21120}, {22912, 24192}}
+var counts = []int{3, 6, 10, 15, 21, 28, 36, 9}
 
 func ChunkFromCenter(x, y int) Chunk {
 	return Chunk{(x - modLikePython(x, 16)) / 16, (y - modLikePython(y, 16)) / 16}
@@ -18,14 +19,55 @@ func ChunkFromPosition(x, y float64) Chunk {
 	return Chunk{(int(x) - modLikePython(int(x), 16)) / 16, (int(y) - modLikePython(int(y), 16)) / 16}
 }
 
+func (c Chunk) Selectable(fromX, fromY float64) int {
+	ring := RingID(c)
+	if ring == -1 {
+		return 0
+	}
+
+	count := counts[ring]
+	x, y := c.Center()
+	distPlayer := c.Dist(fromX, fromY)
+
+	atan := math.Atan2(-float64(x), float64(y))
+	inc := math.Pi * 2.0 / float64(count)
+	if DEBUG {
+		log.Println("selectable", c, "inc", inc)
+		log.Println("distance from player", distPlayer)
+	}
+	for a := atan - inc; a < atan+inc; a += inc * 2 {
+		d := float64(rings[ring][1])
+		ox := -math.Sin(a) * d
+		oy := math.Cos(a) * d
+		if DEBUG {
+			log.Println("other stronghold at", ox, oy)
+		}
+		center := dist(ox, oy, 0, 0)
+		ox -= fromX
+		oy -= fromY
+		altDistPlayer := math.Sqrt(ox*ox + oy*oy)
+		if DEBUG {
+			log.Println("distance from player", altDistPlayer)
+			log.Println("distance from origin", center)
+		}
+		if distPlayer > altDistPlayer+110 {
+			return 0
+		}
+		if distPlayer > altDistPlayer {
+			return 1
+		}
+	}
+	return 2
+}
+
 func RingID(c Chunk) int {
 	cDist := c.Dist(0, 0)
 	for n, ring := range rings {
 		minDist, maxDist := float64(ring[0]), float64(ring[1])
-		if cDist < minDist-240 {
+		if cDist < minDist-110 {
 			continue
 		}
-		if cDist > maxDist+240 {
+		if cDist > maxDist+110 {
 			continue
 		}
 		return n
@@ -52,7 +94,7 @@ var ZeroEyeSet = LayerSet{
 
 	AnglePref:       radsFromDegs(0.08),
 	RingMod:         33,
-	AverageDistance: 0.187,
+	AverageDistance: 0.22,
 	Weights:         [3]int{20, 100, 0},
 	ClusterWeight:   150,
 }
@@ -61,11 +103,11 @@ var OneEyeSet = LayerSet{
 	Code: "educated",
 
 	AnglePref:       radsFromDegs(0.015),
-	RingMod:         88,
-	AverageDistance: 0.35,
-	MathFactor:      246,
-	Weights:         [3]int{50, 80, 0},
-	ClusterWeight:   100,
+	RingMod:         100,
+	AverageDistance: 0.6,
+	MathFactor:      315,
+	Weights:         [3]int{40, 100, 0},
+	ClusterWeight:   140,
 }
 
 var TwoEyeSet = LayerSet{
@@ -73,7 +115,7 @@ var TwoEyeSet = LayerSet{
 
 	AnglePref:       radsFromDegs(0.06),
 	RingMod:         150,
-	AverageDistance: 0.3,
+	AverageDistance: 0.5,
 	MathFactor:      38,
 	Weights:         [3]int{20, 10, 100},
 	ClusterWeight:   180,
@@ -84,7 +126,7 @@ var HyperSet = LayerSet{
 
 	AnglePref:       radsFromDegs(0.01),
 	RingMod:         0,
-	AverageDistance: 0.3,
+	AverageDistance: 0.5,
 	MathFactor:      4,
 	Weights:         [3]int{100, 5, 100},
 	ClusterWeight:   150,
@@ -183,21 +225,48 @@ func (ls LayerSet) Ring(t []Throw, c Chunk) int {
 	if ringID == -1 {
 		return 0
 	}
+
+	total := 1
+	for _, t := range t {
+		sel := c.Selectable(t.X, t.Y)
+		if c == DEBUG_CHUNK {
+			log.Println("-> ls.sel:", sel)
+		}
+		if sel == 0 {
+			if c == DEBUG_CHUNK {
+				DEBUG = true
+				c.Selectable(t.X, t.Y)
+				panic("discarded debug chunk")
+			}
+			if DEBUG {
+				log.Println("select returned 0 for", c)
+				if SELECTION_EFFECT {
+					return 0
+				}
+			}
+		}
+		if SELECTION_EFFECT {
+			total += sel
+		}
+	}
+
 	cDist := c.Dist(0, 0)
 	minDist, maxDist := float64(rings[ringID][0]), float64(rings[ringID][1])
 	preferred := minDist + (maxDist-minDist)*ls.AverageDistance
 	ring := cDist - preferred
 	if ring < ls.RingMod {
-		return 4
+		total++
 	}
 	if ring < ls.RingMod*2 {
-		return 3
+		total++
 	}
 	if ring < ls.RingMod*3 {
-		return 2
+		total++
 	}
-	return 1
+	return total
 }
+
+const SELECTION_EFFECT = true
 
 func (ls LayerSet) Angle(ts []Throw, c Chunk) int {
 	total := 1
