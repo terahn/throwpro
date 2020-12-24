@@ -8,6 +8,8 @@ import (
 
 const MAX_EYE_ANGLE = 0.85
 
+const SELECTION_EFFECT = true
+
 var rings = [][2]int{{1408, 2688}, {4480, 5760}, {7552, 8832}, {10624, 11904}, {13696, 14976}, {16768, 18048}, {19840, 21120}, {22912, 24192}}
 var counts = []int{3, 6, 10, 15, 21, 28, 36, 9}
 
@@ -35,29 +37,35 @@ func (c Chunk) Selectable(fromX, fromY float64) int {
 		log.Println("selectable", c, "inc", inc)
 		log.Println("distance from player", distPlayer)
 	}
-	for a := atan - inc; a < atan+inc; a += inc * 2 {
-		d := float64(rings[ring][1])
-		ox := -math.Sin(a) * d
-		oy := math.Cos(a) * d
-		if DEBUG {
-			log.Println("other stronghold at", ox, oy)
+	score := 2
+	for a := atan - inc; a <= atan+inc; a += inc * 2 {
+		dx, dy := -math.Sin(a), math.Cos(a)
+		d := float64(rings[ring][1]) // max distance
+		{
+			ox, oy := dx*d-fromX, dy*d-fromY
+			altDistPlayer := math.Sqrt(ox*ox + oy*oy)
+			if DEBUG {
+				log.Println("other stronghold at", ox, oy)
+				log.Println("distance from player", altDistPlayer)
+			}
+			if distPlayer > altDistPlayer {
+				// the player is closer to a spokes max than to this chunk
+				score--
+			}
 		}
-		center := dist(ox, oy, 0, 0)
-		ox -= fromX
-		oy -= fromY
-		altDistPlayer := math.Sqrt(ox*ox + oy*oy)
-		if DEBUG {
-			log.Println("distance from player", altDistPlayer)
-			log.Println("distance from origin", center)
-		}
-		if distPlayer > altDistPlayer+110 {
-			return 0
-		}
-		if distPlayer > altDistPlayer {
-			return 1
+
+		d += 115 // max distance plus buffer, unlikely
+		{
+			ox := dx*d - fromX
+			oy := dy*d - fromY
+			altDistPlayer := math.Sqrt(ox*ox + oy*oy)
+			if distPlayer > altDistPlayer {
+				// the player is closer to a spokes true-max than to this chunk
+				return 0
+			}
 		}
 	}
-	return 2
+	return score
 }
 
 func RingID(c Chunk) int {
@@ -102,12 +110,12 @@ var ZeroEyeSet = LayerSet{
 var OneEyeSet = LayerSet{
 	Code: "educated",
 
-	AnglePref:       radsFromDegs(0.015),
-	RingMod:         100,
+	AnglePref:       radsFromDegs(0.007),
+	RingMod:         90,
 	AverageDistance: 0.6,
-	MathFactor:      315,
+	MathFactor:      450,
 	Weights:         [3]int{40, 100, 0},
-	ClusterWeight:   140,
+	ClusterWeight:   180,
 }
 
 var TwoEyeSet = LayerSet{
@@ -265,8 +273,6 @@ func (ls LayerSet) Ring(t []Throw, c Chunk) int {
 	}
 	return total
 }
-
-const SELECTION_EFFECT = true
 
 func (ls LayerSet) Angle(ts []Throw, c Chunk) int {
 	total := 1
