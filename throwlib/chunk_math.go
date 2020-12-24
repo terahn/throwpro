@@ -37,11 +37,11 @@ func (c Chunk) Selectable(fromX, fromY float64) int {
 		log.Println("selectable", c, "inc", inc)
 		log.Println("distance from player", distPlayer)
 	}
-	score := 2
+	score := 8
 	for a := atan - inc; a <= atan+inc; a += inc * 2 {
 		dx, dy := -math.Sin(a), math.Cos(a)
-		d := float64(rings[ring][1]) // max distance
-		{
+		for buffer := -120; buffer <= 120; buffer += 60 {
+			d := float64(rings[ring][1] + buffer)
 			ox, oy := dx*d-fromX, dy*d-fromY
 			altDistPlayer := math.Sqrt(ox*ox + oy*oy)
 			if DEBUG {
@@ -49,19 +49,10 @@ func (c Chunk) Selectable(fromX, fromY float64) int {
 				log.Println("distance from player", altDistPlayer)
 			}
 			if distPlayer > altDistPlayer {
-				// the player is closer to a spokes max than to this chunk
 				score--
-			}
-		}
-
-		d += 115 // max distance plus buffer, unlikely
-		{
-			ox := dx*d - fromX
-			oy := dy*d - fromY
-			altDistPlayer := math.Sqrt(ox*ox + oy*oy)
-			if distPlayer > altDistPlayer {
-				// the player is closer to a spokes true-max than to this chunk
-				return 0
+				if buffer == 120 {
+					return 0
+				}
 			}
 		}
 	}
@@ -111,9 +102,9 @@ var OneEyeSet = LayerSet{
 	Code: "educated",
 
 	AnglePref:       radsFromDegs(0.007),
-	RingMod:         90,
-	AverageDistance: 0.6,
-	MathFactor:      450,
+	RingMod:         100,
+	AverageDistance: 0.45,
+	MathFactor:      480,
 	Weights:         [3]int{40, 100, 0},
 	ClusterWeight:   180,
 }

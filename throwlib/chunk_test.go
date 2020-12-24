@@ -14,7 +14,7 @@ type progressionTest struct {
 	goal   Chunk
 }
 
-const TUNE_COUNT = 200
+const TUNE_COUNT = 20
 
 var progressionTests = append([]progressionTest{
 	{
