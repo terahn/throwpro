@@ -41,6 +41,7 @@ func TestTriangulationAccuracy(t *testing.T) {
 	distances := []int{0, 0, 0, 0}
 	totals := []int{0, 0, 0, 0}
 	for n, test := range progressionTests {
+		t.Logf(`test %d`, n)
 		DEBUG_CHUNK = test.goal
 		sess := NewSession()
 		throws := test.throws
@@ -61,7 +62,8 @@ func TestTriangulationAccuracy(t *testing.T) {
 			chunkDist := int(bestGuess.ChunkDist(test.goal))
 
 			if chunkDist > 1000 {
-				t.Logf("bad %deye test %d result %#v, guessed %s", num, n, test, bestGuess)
+				t.Logf("bad %deye test %d result %#v, guessed %s", num+1, n, test, bestGuess)
+				t.Log("distance was", chunkDist)
 			}
 			distances[num+1] += chunkDist
 			totals[num+1]++
@@ -194,18 +196,18 @@ func TestDeterministic(t *testing.T) {
 }
 
 func TestProgression(t *testing.T) {
-	test := progressionTests[1]
+	test := progressionTests[14]
 	DEBUG_CHUNK = test.goal
 	DEBUG = true
 	sess := NewSession()
 
-	throw := NewBlindThrow(test.throws[0].X, test.throws[0].Y)
-	guess := Chunk(sess.BestGuess(throw).Chunk)
+	// throw := NewBlindThrow(test.throws[0].X, test.throws[0].Y)
+	// guess := Chunk(sess.BestGuess(throw).Chunk)
 
-	t.Logf("current angle: %f", guess.Angle(throw.A, throw.X, throw.Y))
-	t.Logf("blind guess matched %d, guess: %s, goal: %s", len(sess.Scores), guess, test.goal)
+	// t.Logf("current angle: %f", guess.Angle(throw.A, throw.X, throw.Y))
+	// t.Logf("blind guess matched %d, guess: %s, goal: %s", len(sess.Scores), guess, test.goal)
 
-	for n, throw := range test.throws {
+	for n, throw := range test.throws[:1] {
 		g := sess.BestGuess(test.throws[:n+1]...)
 		guess := Chunk(g.Chunk)
 

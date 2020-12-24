@@ -74,6 +74,16 @@ type Throw struct {
 	Type    ThrowType
 }
 
+func (t Throw) RingID() int {
+	dist := int(dist(t.X, t.Y, 0, 0))
+	for id, r := range rings {
+		if dist < r[1] {
+			return id
+		}
+	}
+	return len(rings)
+}
+
 func NewThrowFromArray(arr [3]float64) Throw {
 	return NewThrow(arr[0], arr[1], arr[2])
 }
@@ -197,7 +207,7 @@ func (s *Session) BestGuess(ts ...Throw) Guess {
 		panic("no throws")
 	}
 
-	if len(ts) == 1 {
+	if len(ts) <= 1 {
 		s.Throws = ts
 		s.Scores, s.TotalScore = s.Layers().SumScores(s.Throws)
 		return s.MakeGuess()
@@ -349,19 +359,23 @@ func (s *Session) MakeGuess() Guess {
 
 	if DEBUG {
 		log.Println("total score", s.TotalScore)
-		l := 20
+		l := 10
 		scored := s.ByScore()
 		if len(scored) < l {
 			l = len(scored)
 		}
-		for _, chunk := range s.ByScore()[:l] {
+		for i, sc := range scored {
+			if sc == DEBUG_CHUNK {
+				l = i + 1
+				break
+			}
+		}
+		for _, chunk := range scored[:l] {
 			log.Println("chunk", chunk, "score", s.Scores[chunk])
 		}
 
+		log.Println("goal", DEBUG_CHUNK)
 		log.Println("highest score chunk", highest, "/", maxScore)
-	}
-
-	if DEBUG {
 		log.Printf(`clustering:%s rendering:%s choosing:%s`, t3.Sub(t2), t4.Sub(t3), time.Since(t4))
 	}
 	if SELECTION_METHOD == "closest" {

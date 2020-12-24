@@ -33,24 +33,30 @@ func (c Chunk) Selectable(fromX, fromY float64) int {
 
 	atan := math.Atan2(-float64(x), float64(y))
 	inc := math.Pi * 2.0 / float64(count)
-	if DEBUG {
-		log.Println("selectable", c, "inc", inc)
-		log.Println("distance from player", distPlayer)
+	if c == DEBUG_CHUNK {
+		log.Println("-> selectable", c, "inc", inc)
 	}
-	score := 8
+
+	score := 10
 	for a := atan - inc; a <= atan+inc; a += inc * 2 {
+		// a = neighboring spokes
 		dx, dy := -math.Sin(a), math.Cos(a)
 		for buffer := -120; buffer <= 120; buffer += 60 {
+			// buffer 120 blocks around max
 			d := float64(rings[ring][1] + buffer)
 			ox, oy := dx*d-fromX, dy*d-fromY
 			altDistPlayer := math.Sqrt(ox*ox + oy*oy)
-			if DEBUG {
-				log.Println("other stronghold at", ox, oy)
-				log.Println("distance from player", altDistPlayer)
-			}
+			// every time this stronghold would be closer, subtract a point
 			if distPlayer > altDistPlayer {
+				if c == DEBUG_CHUNK {
+					log.Println("-> distance", altDistPlayer, "<", distPlayer)
+				}
 				score--
+				// if at max buffer, discard this chunk entirely
 				if buffer == 120 {
+					if DEBUG {
+						log.Printf("deselected by %.0f,%.0f... %.0f < %.0f", ox, oy, altDistPlayer, distPlayer)
+					}
 					return 0
 				}
 			}
@@ -101,10 +107,10 @@ var ZeroEyeSet = LayerSet{
 var OneEyeSet = LayerSet{
 	Code: "educated",
 
-	AnglePref:       radsFromDegs(0.007),
+	AnglePref:       radsFromDegs(0.005),
 	RingMod:         100,
-	AverageDistance: 0.45,
-	MathFactor:      480,
+	AverageDistance: 0.61,
+	MathFactor:      440,
 	Weights:         [3]int{40, 100, 0},
 	ClusterWeight:   180,
 }
@@ -147,7 +153,7 @@ func (ls LayerSet) SumScores(throws []Throw) (map[Chunk]int, int) {
 		out := c == DEBUG_CHUNK
 		if reject[c] {
 			if out {
-				log.Println("sumscore: goal already rejected")
+				log.Println("-> sumscore: goal already rejected")
 			}
 			continue
 		}
@@ -159,7 +165,7 @@ func (ls LayerSet) SumScores(throws []Throw) (map[Chunk]int, int) {
 				panic("negative score")
 			}
 			if out {
-				log.Println("sumscore: goal score", s, "for layer", n)
+				log.Println("-> sumscore: goal score", s, "for layer", n)
 			}
 			if s == 0 {
 				score = 0
@@ -237,11 +243,8 @@ func (ls LayerSet) Ring(t []Throw, c Chunk) int {
 				c.Selectable(t.X, t.Y)
 				panic("discarded debug chunk")
 			}
-			if DEBUG {
-				log.Println("select returned 0 for", c)
-				if SELECTION_EFFECT {
-					return 0
-				}
+			if SELECTION_EFFECT {
+				return 0
 			}
 		}
 		if SELECTION_EFFECT {
@@ -271,7 +274,7 @@ func (ls LayerSet) Angle(ts []Throw, c Chunk) int {
 		delta := math.Abs(c.Angle(t.A, t.X, t.Y))
 		if delta > radsFromDegs(MAX_EYE_ANGLE) {
 			if c == DEBUG_CHUNK {
-				log.Println("ls.angle: discarded", delta)
+				log.Println("-> ls.angle: discarded", delta)
 			}
 			return 0
 		}
@@ -292,7 +295,7 @@ func (ls LayerSet) Angle(ts []Throw, c Chunk) int {
 		}
 	}
 	if c == DEBUG_CHUNK {
-		log.Println("ls.angle:"+ls.Code+" goal scored", total)
+		log.Println("-> ls.angle:"+ls.Code+" goal scored", total)
 	}
 	return total / len(ts)
 }
@@ -412,6 +415,8 @@ func ChunksInThrow(t Throw) ChunkList {
 	chunks := make(ChunkList, 0)
 	chunksFound := map[Chunk]bool{}
 
+	pRing := t.RingID()
+
 	scanIters := 0
 	for {
 		blockX := int(math.Floor(cx))
@@ -427,9 +432,21 @@ func ChunksInThrow(t Throw) ChunkList {
 					continue
 				}
 				chunksFound[chunk] = true
-				if RingID(chunk) == -1 {
+				ringID := RingID(chunk)
+				if ringID == -1 {
+					if chunk == DEBUG_CHUNK {
+						log.Println("-> goal chunk out of ring")
+					}
 					continue
 				}
+				if ringID < pRing-1 || ringID > pRing+1 {
+					if chunk == DEBUG_CHUNK {
+						log.Println("-> goal chunk out of player ring", ringID, pRing)
+						log.Println(t)
+					}
+					continue
+				}
+
 				chunks = append(chunks, chunk)
 			}
 		}
