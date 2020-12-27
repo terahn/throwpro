@@ -1,6 +1,6 @@
 # ThrowPro
 ThrowPro is a simple and intuitive Minecraft Stronghold Calculator. 
-Download distributions from [https://cudduw.com](cudduw.com).
+Download distributions from [cudduw.com](https://cudduw.com).
 If anything goes wrong, please open an issue on this repo!
 
 # Basic Instructions
